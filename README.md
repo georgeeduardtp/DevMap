@@ -1,307 +1,215 @@
-# DevMap 🗺️
+# DevMap
 
-### Understand your architecture. See what's running. Find what's broken.
+**Understand your architecture before you start it.**
 
-**DevMap** is an open-source, local-first developer tool designed to automatically discover, visualize, and monitor the services that make up your application.
+DevMap is an open-source developer tool that turns a local repository into an interactive architecture map. Discover applications, infrastructure signals and declared dependencies without running the project you are exploring.
 
-From Spring Boot backends and JavaScript frontends to PostgreSQL, MongoDB, Redis, message brokers, and external APIs, DevMap aims to bring your entire development environment into one interactive architecture map.
+**No cloud. No accounts. No telemetry. Your source stays on your machine.**
 
-**No cloud. No accounts. No code changes required. Just your application, visualized.**
+> Early V1 foundation. Static discovery is implemented; runtime monitoring, source-code analysis and manual URL configuration are roadmap items. A dependency is evidence of possible usage, not proof of a running service.
 
-> 🚧 **Project Status: Planning & Early Development**
->
-> DevMap is currently being designed. The features described below represent our vision and planned development roadmap, not yet-released functionality.
+## Quick start with Docker
 
----
+1. Open Docker Desktop and wait for the Linux container engine to be ready. On Linux, you can also use Docker Engine with Compose v2.
+2. Start DevMap from a terminal in the repository folder that contains `compose.yaml`.
 
-## 💡 Why DevMap?
+   ```sh
+   docker compose up --build -d --wait
+   ```
 
-Modern applications rarely consist of a single process.
+3. Open [DevMap](http://127.0.0.1:3000). With the default mount, enter `.` and click **Analizar carpeta** to scan DevMap itself.
 
-A typical development environment might include:
+The command starts both services and waits until they are ready. The first run downloads images and dependencies, so it may take a few minutes. Docker provides Java, Maven and Node.js.
 
-- A Spring Boot backend running from IntelliJ IDEA
-- A React or Next.js frontend running with `npm run dev`
-- PostgreSQL and MongoDB running in Docker
-- Redis for caching
-- RabbitMQ or Kafka for messaging
-- Multiple microservices communicating with each other
-- External APIs and third-party services
+To stop the app, run `docker compose down` from the same folder. This clears the maps stored in the current backend session.
 
-Understanding how everything connects can be surprisingly difficult, especially when working with an unfamiliar codebase.
+## What works today
 
-**Which services does this application need?**
+- Scan a directory within a configurable local root.
+- Discover Maven applications, Spring Boot dependencies, npm applications, Next.js and React.
+- Identify Redis, PostgreSQL, MongoDB, MySQL, RabbitMQ and Kafka dependency signals.
+- Read Compose service declarations and explicit `depends_on` relationships.
+- Explore a map with zoom, pan, a minimap, component details and source-file evidence.
+- Distinguish **inferred** relationships from **declared** ones. Runtime state always remains **unknown**.
+- Reopen up to 20 scanned projects during the backend session. Rescans replace previous results.
 
-**How are they connected?**
+The initial UI is in Spanish; this README is in English for contributors.
 
-**What needs to be started first?**
+## Docker configuration
 
-**Why isn't my backend working?**
+```sh
+docker compose logs -f # View both services' logs (Ctrl+C stops following logs)
+```
 
-Today, answering these questions often means manually exploring configuration files, reading source code, switching between terminals, and checking containers and logs.
+Stop any previously running native frontend on port 3000 before starting DevMap with Docker.
 
-**DevMap aims to make that process visual, automatic, and intuitive.**
+By default, this repository is mounted **read-only** at `/workspace` in the backend. Enter `.` for the whole mounted directory or `backend` for its Java module. Use paths relative to the mount when scanning from Docker.
 
----
+To scan another directory, copy `.env.example` to `.env` in the repository root and set the parent directory you want to make available:
 
-## ✨ What Will DevMap Do?
+```dotenv
+DEVMAP_REPOSITORIES=C:/dev
+```
 
-### 🔍 1. Automatic Architecture Discovery
+On macOS/Linux, use a path such as `/home/you/projects`. Run `docker compose up --build -d --wait` again, then enter `my-app` in the UI to scan `C:/dev/my-app`. The source directory must already exist and be readable by Docker. Only this selected directory tree is available to the scanner; it is not copied into the image or modified.
 
-Point DevMap at your project directory and let it discover your application's architecture.
+The frontend and backend share a network namespace: the API keeps its loopback binding and the frontend uses the same fixed local proxy. Only UI port 3000 is published, bound to host `127.0.0.1`. They use a Docker bridge network; scanning does not contact external services. Containers run as non-root users with read-only root filesystems and temporary `/tmp` storage. No Docker socket is mounted. Health checks wait for the backend and frontend API connection before the command succeeds.
 
-Planned discovery sources include:
+Source changes require rebuilding with the same `docker compose up --build -d --wait` command. Use the native development setup below for hot reload. To run the existing integration check, optionally use host Node.js with `npm run smoke` while the default repository mount is active.
 
-- `pom.xml` and `build.gradle`
-- Spring Boot `application.yml` and `application.properties`
-- Java source code and HTTP client definitions
-- JavaScript frontend configurations and `package.json`
-- Environment configuration files
-- Docker Compose definitions
-- Database and messaging configurations
+See the official [Docker Compose service reference](https://docs.docker.com/reference/compose-file/services/) for bind mounts, health checks and namespace sharing.
 
-DevMap will combine this information to identify application components and infer how they communicate.
+## Native development (without Docker)
 
-**The goal: generate an architecture map without starting your application.**
+Requirements: **JDK 21**, **Maven 3.9+**, **Node.js 22+**, and npm. Set `JAVA_HOME` to a JDK 21 installation and put its `bin` directory first on your `PATH`. Confirm `mvn -version` reports Java 21; a separately installed Java 8 runtime is insufficient.
 
-### 🗺️ 2. Interactive Architecture Visualization
+Run these commands from the repository root. Installation needs internet access to retrieve DevMap dependencies. Analysis itself makes no outbound requests and works offline once dependencies are available.
 
-Explore your application through an interactive graph.
+### 1. Start the backend
 
-Visualize:
+PowerShell:
 
-- Backend services
-- Frontend applications
-- Databases
-- Caching systems
-- Message brokers
-- External APIs
-- Dependencies and communication paths
+```powershell
+$env:DEVMAP_SCAN_ROOT = (Get-Location).Path
+mvn -f backend/pom.xml spring-boot:run
+```
 
-Click on a component to inspect its configuration, connections, and discovery evidence.
+macOS / Linux:
 
-DevMap will distinguish between confirmed and inferred dependencies, helping developers understand what is known and what still needs verification.
+```sh
+export DEVMAP_SCAN_ROOT="$PWD"
+mvn -f backend/pom.xml spring-boot:run
+```
 
-### 🟢 3. Real-Time Service Monitoring
+The backend listens on `127.0.0.1:8080`. `DEVMAP_SCAN_ROOT` defines the only directory tree it may scan. To explore other projects, set it to their parent directory before starting the backend. Without this variable, the root is the backend process's working directory.
 
-An architecture diagram becomes even more useful when it comes alive.
+### 2. Start the frontend in another terminal
 
-DevMap will aim to detect and monitor services running across different environments:
+```sh
+npm ci
+npm run dev
+```
 
-- Java applications launched from an IDE
-- Node.js development servers
-- Docker containers
-- Locally installed databases
-- Services reachable through configured endpoints
+Open [DevMap](http://127.0.0.1:3000). Enter a path relative to `DEVMAP_SCAN_ROOT` and click **Analizar carpeta**. Absolute paths are accepted only inside that root. The map starts empty and displays results from a scan or a project selected from the session.
 
-Each component will display its current status.
+Next.js telemetry is disabled by the checked-in launcher for every provided development, build and start command. There are no remote fonts, analytics scripts or application cloud integrations.
 
-| Status | Meaning |
-|---|---|
-| 🟢 Healthy | Service passed its configured health checks |
-| 🟡 Warning | Service is running but has a detected issue |
-| 🔴 Unavailable | A configured service could not be reached |
-| ⚪ Unknown | Service status has not been verified |
+## Monorepo
 
-Starting or stopping a service will update its representation in the architecture map.
+```text
+backend/                  Java 21 + Spring Boot 3.5 + Maven
+  src/main/java/com/devmap/
+    controller/           REST endpoints; delegates application logic to services
+    dto/request/          Validated HTTP request objects
+    dto/response/         HTTP responses consumed by the frontend
+    service/              Project orchestration and bounded local scanning
+    repository/           Bounded in-memory project storage
+    model/                Internal project maps, components, connections and evidence
+    mapper/               Conversion from internal models to response DTOs
+    detector/             Pluggable technology detectors
+    exception/            Domain exceptions and centralized HTTP error handling
+    config/               Local browser access checks
+  src/test/               Discovery and HTTP boundary tests
+frontend/                 Next.js 16 + TypeScript + React Flow
+  src/app/                UI, styles and same-origin local API proxy
+  src/features/graph/     Interactive architecture canvas
+  src/lib/                API client and shared types
+scripts/                  Telemetry-disabled Next.js launcher
+.github/workflows/        Build and verification for this repository
+```
 
-**Docker is optional. Your architecture isn't limited to containers.**
+The frontend proxies `/api/*` to a fixed loopback backend. Detectors receive bounded manifest text and return findings; the scanner owns traversal and graph assembly. No database, Docker daemon or external service is required.
 
-### 🛠️ 4. Dependency Diagnostics
+Backend flow: `ProjectController → ProjectService → ScanService / ProjectRepository`. `ProjectMapper` converts the internal `ProjectMap` into response DTOs. The HTTP contract retains `nodes` and `edges` for the frontend, while internal models use `components` and `connections`. A graph simply means components connected by relationships; it is a data structure, not a separate backend framework. See [the backend structure guide](docs/backend-structure.md) for a Spanish explanation of each layer.
 
-DevMap aims to go beyond showing whether a service is running.
+## API
 
-Imagine this situation:
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| GET | `/api/health` | Engine health, static mode and in-memory storage |
+| GET | `/api/projects` | Latest maps in this session, newest first |
+| GET | `/api/projects/{id}` | One map, or 404 |
+| POST | `/api/projects/scan` | Scan a local directory and return its graph |
 
-Your frontend is running successfully.
+PowerShell:
 
-Your Spring Boot backend has started.
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/api/health
+Invoke-RestMethod http://127.0.0.1:8080/api/projects/scan `
+  -Method Post -ContentType 'application/json' `
+  -Body '{"path":"."}'
+```
 
-But PostgreSQL is unavailable.
+macOS / Linux:
 
-Instead of manually investigating every component, DevMap could highlight the affected dependency and explain:
+```sh
+curl http://127.0.0.1:8080/api/projects/scan \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"."}'
+```
 
-> ⚠️ PostgreSQL is unavailable.
->
-> Your Spring Boot application has a configured connection to PostgreSQL on port 5432, but the database cannot be reached.
->
-> Check whether the database service is running.
+A graph contains `id`, `name`, `scannedAt`, `mode`, `filesInspected`, `nodes`, `edges` and `warnings`. Nodes include a technology, kind, `unknown` runtime status, and evidence containing relative filenames and detector descriptions. Edges carry `inferred` or `declared` confidence. No raw configuration or full source file contents are returned.
 
-Future diagnostic capabilities will focus on explaining problems using observable evidence rather than speculative recommendations.
+Invalid paths and invalid input return 400; unknown projects return 404; foreign browser origins or hostnames return 403. Unsupported content types return 415. The frontend reports 502 if the local backend is unavailable.
 
-### ✏️ 5. Manual Configuration When Needed
+## Local development configuration
 
-Not every dependency can be discovered through static analysis.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DEVMAP_SCAN_ROOT` | Backend working directory | Allowed scan directory; use an explicit absolute path |
+| `DEVMAP_PORT` | `8080` | Backend port |
+| `DEVMAP_BACKEND_URL` | `http://127.0.0.1:8080` | Server-side frontend proxy target; loopback HTTP only |
+| `DEVMAP_FRONTEND_ORIGIN` | `http://127.0.0.1:3000` | Additional exact trusted browser origin at the backend |
 
-Applications may use:
+For an alternative backend port, set `DEVMAP_PORT` in the backend terminal and `DEVMAP_BACKEND_URL` in the frontend terminal, or copy `frontend/.env.example` to `frontend/.env.local` and edit it. Keep the frontend on port 3000: its API proxy deliberately accepts only `localhost:3000` and `127.0.0.1:3000`. Stop an existing process occupying that port before starting DevMap.
 
-- Dynamically configured URLs
-- Environment-specific services
-- External APIs
-- Private infrastructure
-- Runtime-generated connections
+### Verify and build
 
-DevMap will allow developers to manually add, edit, and connect components.
+```sh
+mvn -f backend/pom.xml verify
+npm run lint
+npm run typecheck
+npm run build
+```
 
-Automatically discovered relationships and manually configured information will work together.
+For a production-mode local run, build first, then run the following in separate terminals. Set `DEVMAP_SCAN_ROOT` as shown above before launching the jar:
 
-Your corrections will be preserved when the project is rescanned.
+```sh
+java -jar backend/target/devmap-backend-0.1.0.jar
+npm start
+```
 
----
+In native mode, both services bind to IPv4 loopback. No publishing or cloud deployment step is involved.
 
-## 🔒 Privacy First. Local by Design.
+With both services running and `DEVMAP_SCAN_ROOT` set to this repository, `npm run smoke` verifies the full frontend-proxy-backend path, scans DevMap's own manifests, and checks path and browser-origin rejection.
 
-Your development environment should remain under your control.
+## Safety and scope
 
-DevMap is designed around a simple principle:
+DevMap reads only `pom.xml`, `package.json`, `compose.yaml`, `compose.yml`, `docker-compose.yaml` and `docker-compose.yml` in V1. It does **not** execute scripts, Maven/Gradle builds, application code, containers, package lifecycle hooks or repository plugins. It does not resolve dependencies, fetch declared URLs, expand environment variables or read `.env` files while scanning.
 
-**Your source code stays on your machine.**
+- Hidden and generated directories are skipped, including `.git`, `node_modules`, `target`, `build`, `dist`, `.next`, `.gradle`, `.venv` and `vendor`.
+- Symbolic links are not followed; resolved paths must stay inside the allowed scan tree.
+- Limits: depth 12, 20,000 visited entries, 200 inspected manifests, 1 MiB per file, 10 MiB aggregate input, 1,000 graph nodes, 2,000 edges, 200 services per Compose file, and a cooperative 10-second traversal budget. Reaching a limit produces warnings or skips the affected manifest. Blocking filesystem operations are not a hard real-time timeout.
+- XML external entities/DTDs are disabled. YAML uses a safe constructor with alias and nesting limits. Malformed files produce sanitized warnings.
+- Hostname and browser-origin checks resist cross-site access and DNS rebinding; scans require JSON. CORS is not enabled. The Next.js proxy also rejects foreign hosts/origins and redirects to external servers.
+- This is a tool for a trusted local OS session. There is no user authentication or isolation from other processes/users on the same machine. Do not expose it through public proxies, tunnels, shared servers or network shares. Do not modify a repository's directory links while a scan is in progress.
 
-Our intended privacy principles:
+Maps live only in bounded backend memory and disappear when the backend stops. They may reveal service names and relative filenames. DevMap does not write scan results to disk or send them elsewhere.
 
-- ✅ Local source code analysis
-- ✅ No mandatory cloud services
-- ✅ No user accounts
-- ✅ No source code uploaded to DevMap servers
-- ✅ Local configuration storage
-- ✅ No telemetry by default
-- ✅ Open-source and auditable
+## Known limitations and roadmap
 
-DevMap may perform network requests to application endpoints configured by the developer when monitoring is enabled. These requests will be transparent and controllable.
+Manifests show declarations, not complete architecture. Dependency-management entries, development dependencies and unused libraries may produce false positives. Maven profiles, inheritance, namespaces, property interpolation, Gradle, source-code HTTP clients, application configuration, `.env`, Kubernetes and Terraform are not resolved. Compose is not evaluated or merged; overrides, includes and dynamic values are not resolved.
 
----
+Nodes are scoped to their source manifest. The same service in a POM and Compose file may appear twice. The scanner does not invent frontend-to-backend connections or merge instances without evidence. Relative filenames may still be sensitive.
 
-## 🧩 Planned Technology Stack
+Planned next steps:
 
-DevMap will initially focus on discovering Spring Boot applications and JavaScript-based frontends.
+- Config-file and source-code detectors with stronger evidence and confidence.
+- Conservative cross-file correlation and deduplication.
+- Optional manual service/URL annotations saved locally.
+- Local JSON or SQLite persistence, explicit import/export and richer layout.
+- Optional runtime checks with separate, explicit permission. V1 performs none.
 
-| Component | Technology |
-|---|---|
-| Core engine | Java |
-| Local API | Spring Boot |
-| User interface | Next.js + TypeScript |
-| Architecture visualization | React Flow |
-| Live updates | WebSocket or Server-Sent Events |
-| Container integration | Docker Engine API |
-| Local persistence | JSON or SQLite |
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [MIT](LICENSE).
 
-The architecture is intended to be modular so that support for additional frameworks and infrastructure can be added over time.
-
----
-
-## 🛣️ Roadmap
-
-### V1 — Architecture Discovery
-
-**Goal: Understand an application before running it.**
-
-- [ ] Scan local project directories
-- [ ] Discover Spring Boot applications
-- [ ] Detect JavaScript frontends
-- [ ] Parse Maven and Gradle dependencies
-- [ ] Analyze Spring Boot configuration files
-- [ ] Discover Docker Compose services
-- [ ] Identify common databases and infrastructure dependencies
-- [ ] Generate an interactive architecture graph
-- [ ] Display discovery evidence
-- [ ] Allow manual service and dependency configuration
-- [ ] Persist project maps locally
-
-### V2 — Live Environment Monitoring
-
-**Goal: Turn static architecture diagrams into live development maps.**
-
-- [ ] Detect running Java and Node.js processes
-- [ ] Integrate with Docker Engine
-- [ ] Monitor configured ports and endpoints
-- [ ] Support Spring Boot Actuator health checks
-- [ ] Update service statuses in real time
-- [ ] Match discovered services with running processes
-- [ ] Visualize unavailable dependencies
-
-### V3 — Intelligent Diagnostics
-
-**Goal: Help developers understand why their applications aren't working.**
-
-- [ ] Detect common dependency failures
-- [ ] Correlate service health and dependency states
-- [ ] Identify potential startup blockers
-- [ ] Explain issues using diagnostic evidence
-- [ ] Suggest troubleshooting steps
-- [ ] Visualize dependency impact
-
-### Future Possibilities
-
-- Multi-repository architecture discovery
-- Kubernetes support
-- Additional backend frameworks
-- Runtime communication tracing
-- IDE integrations
-- Architecture documentation export
-- Plugin system for custom detectors
-- Controlled startup orchestration
-
-This roadmap is subject to change based on community feedback.
-
----
-
-## 🎯 Who Is DevMap For?
-
-**Backend developers** who want to understand how their services depend on databases, caches, and other APIs.
-
-**Full-stack developers** who work with multiple applications running across terminals, IDEs, and Docker.
-
-**Developers joining an existing project** who need to understand its architecture and local setup.
-
-**Open-source maintainers** who want to make complex repositories easier to explore and understand.
-
-**Teams working with microservices** who need a clearer picture of their local development environments.
-
----
-
-## 🤝 Contributing
-
-DevMap is being built in the open, and community feedback is welcome.
-
-We'd love to hear from developers interested in:
-
-- Java and Spring Boot
-- Static code analysis
-- Developer tooling
-- Interactive graph visualization
-- Docker and local infrastructure
-- Open-source software
-
-Whether you have an idea, discover an edge case, or want to contribute code, your input can help shape the project.
-
-As development progresses, we'll publish contribution guidelines, local setup instructions, and a list of beginner-friendly issues.
-
----
-
-## 💬 Help Shape DevMap
-
-We're especially interested in understanding the challenges developers face when working with multi-service applications.
-
-**What is the most frustrating part of understanding or starting an unfamiliar project?**
-
-**Which technologies should DevMap detect first?**
-
-**What would make an automatically generated architecture map genuinely useful to you?**
-
-Share your thoughts through GitHub Issues and Discussions as they become available.
-
-Your feedback will help us prioritize real developer problems over unnecessary features.
-
----
-
-## ⭐ Support the Project
-
-If you find the idea useful, consider giving DevMap a star.
-
-It helps other developers discover the project and shows that there's interest in making local development environments easier to understand.
-
-**Built for developers, with developers.**
-
----
-
-*DevMap — Your application's architecture, finally visible.*
+Stack references: [Spring Boot requirements](https://docs.spring.io/spring-boot/3.5/system-requirements.html) and [Next.js support policy](https://nextjs.org/support-policy).

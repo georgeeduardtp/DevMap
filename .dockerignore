@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.next
+**/target
+**/.env
+**/.env.*
+**/*.log
+**/*.tsbuildinfo
+.tools
+.idea
+.vscode
+docs
