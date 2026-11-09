@@ -1,0 +1,15 @@
+server:
+  address: 127.0.0.1
+  port: ${DEVMAP_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: devmap
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+devmap:
+  scan-root: ${DEVMAP_SCAN_ROOT:.}
+  frontend-origin: ${DEVMAP_FRONTEND_ORIGIN:http://127.0.0.1:3000}
