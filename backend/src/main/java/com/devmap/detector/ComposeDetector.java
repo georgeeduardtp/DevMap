@@ -4,6 +4,8 @@ import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +45,7 @@ public class ComposeDetector implements TechnologyDetector {
             String technology = detected == null ? "Container" : base;
             if (detected != null) technologies.add(new Technology(detected, "infrastructure", "Compose image: " + base));
             nodes.add(new TechnologyDetector.Component(key, key, "container", technology,
-                "Service declared in Compose; runtime unverified"));
+                "Service declared in Compose; runtime unverified", buildFile(config.get("build"))));
             Object depends = config.get("depends_on");
             Iterable<?> targets = depends instanceof Map<?, ?> m ? m.keySet() : depends instanceof List<?> l ? l : List.of();
             for (Object target : targets) {
@@ -53,5 +55,33 @@ public class ComposeDetector implements TechnologyDetector {
             }
         });
         return new Detection(nodes, edges, technologies);
+    }
+
+    private static String buildFile(Object build) {
+        String context;
+        String dockerfile = "Dockerfile";
+        if (build instanceof String path) {
+            context = relativePath(path);
+        } else if (build instanceof Map<?, ?> config && !config.containsKey("dockerfile_inline")) {
+            context = config.containsKey("context") ? relativePath(config.get("context")) : ".";
+            dockerfile = config.containsKey("dockerfile") ? relativePath(config.get("dockerfile")) : "Dockerfile";
+        } else {
+            return null;
+        }
+
+        if (context == null || dockerfile == null) return null;
+        try {
+            return Path.of(context).resolve(dockerfile).normalize().toString().replace('\\', '/');
+        } catch (InvalidPathException ignored) {
+            return null;
+        }
+    }
+
+    private static String relativePath(Object value) {
+        if (!(value instanceof String path) || path.isBlank() || path.length() > 1024
+            || path.contains(":") || path.contains("$") || path.startsWith("~") || path.startsWith("git@")
+            || path.chars().anyMatch(Character::isISOControl)) return null;
+        String normalized = path.replace('\\', '/');
+        return normalized.startsWith("/") ? null : normalized;
     }
 }

@@ -32,6 +32,8 @@ The folder picker works with folders outside the Docker mount. When the browser 
 - Identify Redis, PostgreSQL, MongoDB, MySQL, RabbitMQ and Kafka dependency signals.
 - Read Compose service declarations and explicit `depends_on` relationships.
 - Explore a map with zoom, pan, a minimap, technology logos, component details and source-file evidence.
+- See components grouped by their manifest directory, with inferred frontend and backend roles and a separate Compose infrastructure group. Filter the technology inventory by module.
+- Select a Docker Compose file in the map to see its build and startup commands. Compose services show their referenced local Dockerfile in the evidence panel.
 - Browse a project-wide technology inventory when no component is selected. Known manifest declarations identify languages, frameworks, libraries, tools, runtimes and infrastructure, with source-file evidence for each technology.
 - Distinguish **inferred** relationships from **declared** ones. Runtime state always remains **unknown**.
 - Reopen or remove scanned projects during the backend session. The session holds up to 20 maps. Rescans replace previous results.

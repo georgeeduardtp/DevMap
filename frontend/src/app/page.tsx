@@ -2,8 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import ProjectInspector from "@/features/graph/ProjectInspector";
+import { projectModules } from "@/features/graph/project-modules";
 import { deleteProject, listProjects, scanFolder, scanProject, type ScanProgress } from "@/lib/api";
 import type { ArchitectureGraph } from "@/lib/types";
 
@@ -54,6 +55,8 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [useLegacyPicker, setUseLegacyPicker] = useState(false);
   const folderInput = useRef<HTMLInputElement>(null);
+  const modules = useMemo(() => graph ? projectModules(graph) : [], [graph]);
+  const compose = modules.find((module) => module.composeFile && module.id === selected);
   const node = graph?.nodes.find((n) => n.id === selected);
   const scanStatus = scanProgress && describeScan(scanProgress);
   const busy = scanProgress !== null;
@@ -196,11 +199,11 @@ export default function Home() {
             <div className="map-toolbar"><div><span className="map-dot" /><strong>{graph.name}</strong></div><span>{graph.nodes.length} componentes <b>·</b> {graph.edges.length} relaciones</span></div>
             <div className="map-content">
               <div className="canvas">
-                {graph.nodes.length ? <ArchitectureCanvas graph={graph} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
+                {graph.nodes.length ? <ArchitectureCanvas graph={graph} modules={modules} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
                 <div className="canvas-legend"><span className="legend-solid" />Declarada<span className="legend-dashed" />Inferida</div>
                 {scanStatus && <div className="scan-overlay"><MapLoader {...scanStatus} /></div>}
               </div>
-              <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} node={node} onSelect={setSelected} />
+              <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} modules={modules} node={node} compose={compose} onSelect={setSelected} />
             </div>
             <div className="map-footer"><span>○ Sin comprobaciones de red</span><span>Arrastra para explorar · Scroll para acercar</span></div>
           </section>

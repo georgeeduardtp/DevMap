@@ -192,8 +192,20 @@ public class ScanService {
                 for (var component : detection.components()) {
                     String label = component.key().equals("app") && !module.isEmpty()
                         ? module + " · " + component.label() : component.label();
+                    List<Evidence> evidence = new ArrayList<>();
+                    evidence.add(new Evidence(relative, component.description()));
+                    if (component.buildFile() != null) {
+                        try {
+                            Path buildFile = Path.of(module).resolve(component.buildFile()).normalize();
+                            if (!buildFile.isAbsolute() && !buildFile.startsWith("..") && !buildFile.toString().isEmpty()) {
+                                evidence.add(new Evidence(buildFile.toString().replace('\\', '/'), "Dockerfile referenced by " + relative));
+                            }
+                        } catch (InvalidPathException ignored) {
+                            // The service remains valid even when its build path cannot be resolved locally.
+                        }
+                    }
                     nodes.add(new ProjectComponent(prefix + component.key(), label, component.kind(), component.technology(), "unknown",
-                        List.of(new Evidence(relative, component.description()))));
+                        List.copyOf(evidence)));
                 }
                 for (var connection : detection.connections()) {
                     edges.add(new ProjectConnection(prefix + connection.source() + "->" + connection.target(),
@@ -214,7 +226,11 @@ public class ScanService {
         }
 
         private ProjectMap result(String id, String name, int inspected) {
-            if (nodes.isEmpty()) warnings.add("No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory.");
+            if (nodes.isEmpty()) {
+                warnings.add(technologyEvidence.isEmpty()
+                    ? "No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory."
+                    : "No applications or services identified. See the technology inventory for manifest evidence.");
+            }
             warnings.add("Static evidence only: dependencies do not prove usage, connectivity or runtime health.");
             var technologies = technologyEvidence.entrySet().stream()
                 .map(entry -> new DetectedTechnology(entry.getKey().name(), entry.getKey().category(), List.copyOf(entry.getValue())))

@@ -117,6 +117,70 @@
 .technology-list details[open] summary::after { content: "−"; }
 .technology-list summary:hover, .technology-list details[open] summary { background: #1c2c24; }
 .technology-list summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.react-flow__node.module-frame {
+  --module-accent: #b1c0b1;
+  border: 1px solid #4a5c50;
+  border-top: 2px solid var(--module-accent);
+  border-radius: 12px;
+  background: rgb(25 39 32 / 78%);
+}
+.react-flow__node.module-frame-frontend { --module-accent: #a7dca4; }
+.react-flow__node.module-frame-backend { --module-accent: #94c8de; }
+.react-flow__node.module-frame-fullstack { --module-accent: #c4b5fd; }
+.react-flow__node.module-frame-infrastructure { --module-accent: #d6c893; }
+.module-frame-heading {
+  display: grid;
+  gap: 5px;
+  padding: 13px 20px;
+}
+.module-frame-heading strong {
+  color: var(--module-accent);
+  font-size: 15px;
+}
+.module-frame-heading code {
+  overflow: hidden;
+  color: #c0cec3;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.react-flow__node.module-frame-active { outline: 2px solid var(--module-accent); outline-offset: 3px; }
+.compose-frame-button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+}
+.compose-frame-button:hover { background: #28382a; }
+.compose-frame-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.compose-frame-title > span { color: #d6c893; font-size: 10px; }
+.compose-details pre {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0d1813;
+  color: #c7e4ae;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.compose-details .compose-file { color: #d6c893; overflow-wrap: anywhere; }
+.compose-details .muted, .compose-service-list { font-size: 11px; }
+.compose-service-list { padding-left: 18px; overflow-wrap: anywhere; }
+.react-flow__node.architecture-node strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
 @media(min-width:1500px){main{padding:40px 48px 0}.canvas{height:540px}.inspector{max-height:540px}.map-content{grid-template-columns:minmax(0,1fr) 270px}}
 @media(max-width:1150px){.workspace{grid-template-columns:190px minmax(0,1fr)}main{padding:28px 22px 0}.sidebar{padding:28px 12px}.sidebar-section .eyebrow{font-size:8px}.map-content{grid-template-columns:minmax(0,1fr) 200px}.inspector{padding:20px 14px}.static-pill{display:none}.scan-help{flex-direction:column;align-items:flex-start}.findings{gap:20px}.findings>div{min-width:140px}}
 @media(max-width:850px){.topbar{padding:0 20px;height:65px}.top-tagline{display:none}.workspace{display:block}.sidebar{display:none}main{padding:25px 18px 0}.page-heading{margin-bottom:22px}h1{font-size:29px}.map-content{grid-template-columns:minmax(0,1fr) 200px}.canvas{height:400px}.inspector{max-height:400px}.map-toolbar>span{font-size:9px}.scan-form{padding:16px}.page-footer span:last-child{display:none}}

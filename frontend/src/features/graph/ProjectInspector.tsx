@@ -1,5 +1,7 @@
+import { useState } from "react";
 import TechnologyIcon from "@/components/TechnologyIcon";
 import type { ArchitectureGraph, ComponentNode, DetectedTechnology } from "@/lib/types";
+import { moduleTitle, type ProjectModule } from "./project-modules";
 
 const categories = [
   ["language", "Lenguajes"],
@@ -49,19 +51,48 @@ function TechnologyOverview({ technologies }: { technologies?: DetectedTechnolog
   </div>;
 }
 
-export default function ProjectInspector({ graph, node, onSelect }: {
+function ComposeDetails({ module }: { module: ProjectModule }) {
+  const file = module.composeFile;
+  if (!file) return null;
+
+  const filename = file.slice(file.lastIndexOf("/") + 1);
+  const command = `docker compose -f ${filename}`;
+  return <div className="compose-details">
+    <TechnologyIcon technology="Docker Compose" />
+    <h2>Docker Compose</h2>
+    <code className="compose-file">{file}</code>
+    <p className="muted">{module.path ? <>Ejecuta desde <code>{module.path}/</code>.</> : "Ejecuta desde la raíz del proyecto."}</p>
+    <h3>Construir las imágenes</h3>
+    <pre><code>{command} build</code></pre>
+    <h3>Construir y arrancar</h3>
+    <pre><code>{command} up --build -d</code></pre>
+    <h3>Servicios declarados</h3>
+    <ul className="compose-service-list">{module.nodes.map((service) => <li key={service.id}>{service.label}</li>)}</ul>
+  </div>;
+}
+
+export default function ProjectInspector({ graph, modules, node, compose, onSelect }: {
   graph: ArchitectureGraph;
+  modules: ProjectModule[];
   node?: ComponentNode;
+  compose?: ProjectModule;
   onSelect: (id: string) => void;
 }) {
-  return <aside className="inspector" aria-label={node ? "Detalle del componente" : "Tecnologías detectadas"}>
-    <label className="eyebrow" htmlFor="component">{node ? "DETALLE DEL COMPONENTE" : "TECNOLOGÍAS DETECTADAS"}</label>
-    <select id="component" className="component-select" value={node?.id ?? ""}
+  const [moduleId, setModuleId] = useState("");
+  const selectedModule = modules.find((module) => module.id === moduleId);
+  const title = compose ? "Docker Compose" : node ? "Detalle del componente" : "Tecnologías detectadas";
+
+  return <aside className="inspector" aria-label={title}>
+    <label className="eyebrow" htmlFor="component">{title.toUpperCase()}</label>
+    <select id="component" className="component-select" value={compose?.id ?? node?.id ?? ""}
       onChange={(event) => onSelect(event.target.value)} disabled={!graph.nodes.length}>
       <option value="">Tecnologías del proyecto</option>
-      {graph.nodes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+      {modules.map((module) => <optgroup key={module.id} label={moduleTitle(module)}>
+        {module.composeFile && <option value={module.id}>Comandos de Compose</option>}
+        {module.nodes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+      </optgroup>)}
     </select>
-    {node ? <>
+    {compose ? <ComposeDetails module={compose} /> : node ? <>
       <span className="component-symbol">{node.kind === "application" ? "{ }" : "▤"}</span>
       <h2>{node.label}</h2>
       <span className="technology-badge">{node.technology}</span>
@@ -72,6 +103,15 @@ export default function ProjectInspector({ graph, node, onSelect }: {
       <h3>Evidencia</h3>
       <EvidenceList evidence={node.evidence} />
       <p className="inspector-note">Una declaración indica una posibilidad de uso. No confirma que el servicio esté desplegado o activo.</p>
-    </> : <TechnologyOverview technologies={graph.technologies} />}
+    </> : <>
+      {modules.length > 1 && <>
+        <label className="eyebrow" htmlFor="technology-module">MÓDULO</label>
+        <select id="technology-module" className="component-select" value={moduleId} onChange={(event) => setModuleId(event.target.value)}>
+          <option value="">Todo el proyecto</option>
+          {modules.map((module) => <option key={module.id} value={module.id}>{moduleTitle(module)}</option>)}
+        </select>
+      </>}
+      <TechnologyOverview technologies={selectedModule ? selectedModule.technologies : graph.technologies} />
+    </>}
   </aside>;
 }

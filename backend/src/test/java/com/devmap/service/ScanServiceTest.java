@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -19,6 +20,60 @@ class ScanServiceTest {
     @TempDir Path root;
     private ScanService scanner() {
         return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector()));
+    }
+
+    @Test void workspaceCoordinatorContributesTechnologiesWithoutAddingAnApplication() {
+        var graph = scanner().scanFolder("Workspace", Map.of(
+            "package.json", """
+                {"private":true,"workspaces":["frontend"],
+                 "scripts":{"start":"npm run start --workspace frontend","dev":"npm run dev -w frontend"},
+                 "devDependencies":{"eslint":"*","pg":"*"}}
+                """,
+            "frontend/package.json", "{\"dependencies\":{\"next\":\"*\"}}"
+        ));
+
+        assertThat(graph.components()).extracting(node -> node.id()).containsExactly("frontend/package.json::app");
+        assertThat(graph.connections()).isEmpty();
+        assertThat(graph.technologies()).anySatisfy(technology -> {
+            assertThat(technology.name()).isEqualTo("Workspaces");
+            assertThat(technology.evidence()).anyMatch(evidence -> evidence.file().equals("package.json"));
+        });
+        assertThat(graph.technologies()).extracting(technology -> technology.name()).contains("ESLint", "PostgreSQL");
+    }
+
+    @Test void workspaceWithItsOwnStartScriptRemainsAnApplication() {
+        var graph = scanner().scanFolder("Workspace", Map.of("package.json", """
+            {"workspaces":["packages/*"], "scripts":{"start":"node server.js"}}
+            """));
+
+        assertThat(graph.components()).extracting(node -> node.id()).containsExactly("package.json::app");
+    }
+
+    @Test void resolvesLocalBuildRecipesRelativeToTheirComposeFileAndContext() {
+        var graph = scanner().scanFolder("Compose project", Map.of("deploy/compose.yaml", """
+            services:
+              api:
+                build:
+                  context: ../backend
+                  dockerfile: docker/Dev.Dockerfile
+              web:
+                build: ../frontend
+              external:
+                build: https://user:secret@example.test/project.git
+              outside:
+                build: ../../private
+              inline:
+                build:
+                  dockerfile_inline: FROM scratch
+            """));
+
+        assertThat(graph.components()).filteredOn(node -> node.label().equals("api")).singleElement().satisfies(node ->
+            assertThat(node.evidence()).extracting(evidence -> evidence.file()).containsExactly("deploy/compose.yaml", "backend/docker/Dev.Dockerfile"));
+        assertThat(graph.components()).filteredOn(node -> node.label().equals("web")).singleElement().satisfies(node ->
+            assertThat(node.evidence()).extracting(evidence -> evidence.file()).containsExactly("deploy/compose.yaml", "frontend/Dockerfile"));
+        assertThat(graph.components()).filteredOn(node -> List.of("external", "outside", "inline").contains(node.label()))
+            .allSatisfy(node -> assertThat(node.evidence()).extracting(evidence -> evidence.file()).containsExactly("deploy/compose.yaml"));
+        assertThat(graph.toString()).doesNotContain("user:secret", "../../private", "FROM scratch");
     }
     @Test void discoversSignalsWithoutExecutingScriptsOrReadingSecrets() throws Exception {
         Files.writeString(root.resolve("package.json"), """

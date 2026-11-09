@@ -21,7 +21,14 @@ assert.ok(graph.nodes.some((node) => node.technology === "Next.js" &&
   node.evidence.some((entry) => entry.file === "frontend/package.json")));
 assert.ok(graph.nodes.every((node) => node.status === "unknown"));
 assert.ok(graph.edges.some((edge) => edge.confidence === "declared"));
+for (const service of ["frontend", "backend"]) {
+  const container = graph.nodes.find((node) => node.id === `compose.yaml::${service}`);
+  assert.ok(container?.evidence.some((entry) => entry.file === `${service}/Dockerfile`));
+}
 assert.ok(graph.technologies.some((technology) => technology.name === "React Flow" && technology.category === "library"));
+assert.ok(!graph.nodes.some((node) => node.id === "package.json::app"));
+assert.ok(graph.technologies.some((technology) => technology.name === "Workspaces" &&
+  technology.evidence.some((entry) => entry.file === "package.json")));
 const projects = await (await request("/api/projects")).json();
 assert.ok(projects.some((project) => project.id === graph.id));
 assert.equal((await request(`/api/projects/${graph.id}`)).status, 200);
