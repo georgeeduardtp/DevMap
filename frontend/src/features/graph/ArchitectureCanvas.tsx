@@ -20,7 +20,7 @@ function ModuleFrame({ data }: NodeProps<ModuleFrameNode>) {
       event.stopPropagation();
       data.onSelect(composeId);
     }}>
-      <span className="compose-frame-title"><strong>{data.label}</strong><span>Comandos ↗</span></span>
+      <span className="compose-frame-title"><strong title={data.label}>{data.label}</strong><span>Comandos ↗</span></span>
       <code title={data.path}>{data.path}</code>
     </button>;
   }

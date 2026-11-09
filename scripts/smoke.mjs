@@ -21,6 +21,11 @@ assert.ok(graph.nodes.some((node) => node.technology === "Next.js" &&
   node.evidence.some((entry) => entry.file === "frontend/package.json")));
 assert.ok(graph.nodes.every((node) => node.status === "unknown"));
 assert.ok(graph.edges.some((edge) => edge.confidence === "declared"));
+assert.equal(graph.composeNames["compose.yaml"], "devmap");
+assert.ok(graph.commands.some(({ kind, text, file }) => kind === "script" && text === "npm run dev" && file === "frontend/package.json"));
+assert.ok(graph.commands.some(({ kind, text, file }) => kind === "documented" &&
+  text === "docker compose up --build -d --wait" && file === "README.md"));
+assert.ok(graph.commands.some(({ label, file }) => label === "ENTRYPOINT" && file === "backend/Dockerfile"));
 for (const service of ["frontend", "backend"]) {
   const container = graph.nodes.find((node) => node.id === `compose.yaml::${service}`);
   assert.ok(container?.evidence.some((entry) => entry.file === `${service}/Dockerfile`));
@@ -44,14 +49,19 @@ const manifests = {
   "web/package.json": JSON.stringify({
     dependencies: { next: "16", react: "19", "@xyflow/react": "12", "@maptiler/sdk": "4", pg: "8" },
     devDependencies: { typescript: "5", vite: "7" },
+    scripts: { dev: "vite" },
   }),
   "compose.yaml": "services:\n  api:\n    image: example/api\n    depends_on: [db]\n  db:\n    image: postgres:17\n",
+  "README.md": "```sh\nuv run app\n```",
 };
 const folderResponse = await scanFolder(manifests);
 assert.equal(folderResponse.status, 200, await folderResponse.clone().text());
 const folderGraph = await folderResponse.json();
 assert.equal(folderGraph.name, "Folder outside the mount");
-assert.equal(folderGraph.filesInspected, 2);
+assert.equal(folderGraph.filesInspected, 3);
+assert.deepEqual(folderGraph.composeNames, {});
+assert.ok(folderGraph.commands.some(({ text, file }) => text === "npm run dev" && file === "web/package.json"));
+assert.ok(folderGraph.commands.some(({ text, file }) => text === "uv run app" && file === "README.md"));
 assert.ok(folderGraph.nodes.some((node) => node.technology === "Next.js" &&
   node.evidence.some((entry) => entry.file === "web/package.json")));
 assert.ok(folderGraph.edges.some((edge) => edge.confidence === "declared"));

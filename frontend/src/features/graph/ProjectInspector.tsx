@@ -1,6 +1,7 @@
 import { useState } from "react";
 import TechnologyIcon from "@/components/TechnologyIcon";
-import type { ArchitectureGraph, ComponentNode, DetectedTechnology } from "@/lib/types";
+import type { ArchitectureGraph, ComponentNode, DetectedTechnology, ProjectCommand } from "@/lib/types";
+import ProjectCommands, { commandDirectory } from "./ProjectCommands";
 import { moduleTitle, type ProjectModule } from "./project-modules";
 
 const categories = [
@@ -51,21 +52,27 @@ function TechnologyOverview({ technologies }: { technologies?: DetectedTechnolog
   </div>;
 }
 
-function ComposeDetails({ module }: { module: ProjectModule }) {
-  const file = module.composeFile;
-  if (!file) return null;
+function commandsForCompose(commands: ProjectCommand[] | undefined, module: ProjectModule, modules: ProjectModule[]) {
+  const sourceFiles = new Set(module.nodes.flatMap((item) => item.evidence.map(({ file }) => file)));
+  const uniqueCompose = modules.filter(({ composeFile, path }) => composeFile && path === module.path).length === 1;
+  return commands?.filter((command) => {
+    if (sourceFiles.has(command.file)) return true;
+    if (command.kind !== "documented" || commandDirectory(command.file) !== module.path) return false;
+    return [...command.text.matchAll(/^[ \t]*(?:docker[ \t]+compose|docker-compose)[ \t]+(.+)$/gm)].some(([, args]) => {
+      const explicitFiles = [...args.matchAll(/(?:^|\s)(?:-f|--file)(?:[ \t]+|=)(?:"([^"]+)"|'([^']+)'|([^\s]+))/g)];
+      if (!explicitFiles.length) return uniqueCompose;
+      const basename = module.composeFile?.split("/").at(-1);
+      return explicitFiles.some(([, quoted, singleQuoted, plain]) => (quoted ?? singleQuoted ?? plain).replace(/^\.\//, "") === basename);
+    });
+  });
+}
 
-  const filename = file.slice(file.lastIndexOf("/") + 1);
-  const command = `docker compose -f ${filename}`;
+function ComposeDetails({ module, commands }: { module: ProjectModule; commands?: ProjectCommand[] }) {
   return <div className="compose-details">
     <TechnologyIcon technology="Docker Compose" />
-    <h2>Docker Compose</h2>
-    <code className="compose-file">{file}</code>
-    <p className="muted">{module.path ? <>Ejecuta desde <code>{module.path}/</code>.</> : "Ejecuta desde la raíz del proyecto."}</p>
-    <h3>Construir las imágenes</h3>
-    <pre><code>{command} build</code></pre>
-    <h3>Construir y arrancar</h3>
-    <pre><code>{command} up --build -d</code></pre>
+    <h2>{module.label}</h2>
+    <code className="compose-file">{module.composeFile}</code>
+    <ProjectCommands commands={commands} />
     <h3>Servicios declarados</h3>
     <ul className="compose-service-list">{module.nodes.map((service) => <li key={service.id}>{service.label}</li>)}</ul>
   </div>;
@@ -81,6 +88,16 @@ export default function ProjectInspector({ graph, modules, node, compose, onSele
   const [moduleId, setModuleId] = useState("");
   const selectedModule = modules.find((module) => module.id === moduleId);
   const title = compose ? "Docker Compose" : node ? "Detalle del componente" : "Tecnologías detectadas";
+  const componentFiles = node?.evidence.map(({ file }) => file) ?? [];
+  const componentCommands = graph.commands?.filter((command) =>
+    command.componentId ? command.componentId === node?.id : componentFiles.includes(command.file) ||
+    (node?.kind === "application" && command.kind === "documented" && componentFiles.some((file) =>
+      commandDirectory(command.file) === commandDirectory(file) ||
+      command.text.split(/\s+/).some((word) => word.replace(/^["']|["']$/g, "") === file))));
+  const overviewCommands = selectedModule?.composeFile ? commandsForCompose(graph.commands, selectedModule, modules)
+    : selectedModule ? graph.commands?.filter((command) => command.kind !== "container" &&
+      commandDirectory(command.file) === selectedModule.path)
+    : graph.commands;
 
   return <aside className="inspector" aria-label={title}>
     <label className="eyebrow" htmlFor="component">{title.toUpperCase()}</label>
@@ -92,10 +109,11 @@ export default function ProjectInspector({ graph, modules, node, compose, onSele
         {module.nodes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </optgroup>)}
     </select>
-    {compose ? <ComposeDetails module={compose} /> : node ? <>
+    {compose ? <ComposeDetails key={compose.id} module={compose} commands={commandsForCompose(graph.commands, compose, modules)} /> : node ? <>
       <span className="component-symbol">{node.kind === "application" ? "{ }" : "▤"}</span>
       <h2>{node.label}</h2>
       <span className="technology-badge">{node.technology}</span>
+      <ProjectCommands key={node.id} commands={componentCommands} />
       <dl>
         <dt>Estado de ejecución</dt><dd>○ Desconocido</dd>
         <dt>Origen</dt><dd>Análisis estático</dd>
@@ -111,6 +129,7 @@ export default function ProjectInspector({ graph, modules, node, compose, onSele
           {modules.map((module) => <option key={module.id} value={module.id}>{moduleTitle(module)}</option>)}
         </select>
       </>}
+      <ProjectCommands key={moduleId} commands={overviewCommands} />
       <TechnologyOverview technologies={selectedModule ? selectedModule.technologies : graph.technologies} />
     </>}
   </aside>;

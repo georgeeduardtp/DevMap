@@ -1,5 +1,6 @@
 package com.devmap.mapper;
 
+import com.devmap.dto.response.CommandResponse;
 import com.devmap.dto.response.ComponentResponse;
 import com.devmap.dto.response.ConnectionResponse;
 import com.devmap.dto.response.EvidenceResponse;
@@ -21,8 +22,10 @@ public class ProjectMapper {
             connection.id(), connection.source(), connection.target(), connection.label(), connection.confidence())).toList();
         var technologies = project.technologies().stream().map(technology -> new TechnologyResponse(
             technology.name(), technology.category(), toEvidenceResponse(technology.evidence()))).toList();
+        var commands = project.commands().stream().map(command -> new CommandResponse(
+            command.kind(), command.label(), command.text(), command.file(), command.componentId())).toList();
         return new ProjectResponse(project.id(), project.name(), project.scannedAt(), project.mode(),
-            project.filesInspected(), nodes, edges, project.warnings(), technologies);
+            project.filesInspected(), nodes, edges, project.warnings(), technologies, project.composeNames(), commands);
     }
 
     private List<EvidenceResponse> toEvidenceResponse(List<Evidence> evidence) {

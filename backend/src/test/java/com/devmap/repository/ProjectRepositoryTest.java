@@ -1,27 +1,86 @@
 package com.devmap.repository;
 
+import com.devmap.exception.ProjectStorageException;
 import com.devmap.model.ProjectMap;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 
 class ProjectRepositoryTest {
-    private ProjectMap project(String id) {
-        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of(), List.of());
+    @TempDir Path dataDirectory;
+
+    private ProjectRepository repository() {
+        return new ProjectRepository(dataDirectory.toString(), new ObjectMapper().findAndRegisterModules());
     }
 
-    @Test void keepsOnlyTwentyMostRecentProjectsAndPromotesRescannedProjects() {
-        var repository = new ProjectRepository();
-        for (int i = 0; i < 21; i++) repository.save(project("project-" + i));
-        assertThat(repository.findAll()).hasSize(20);
-        assertThat(repository.findById("project-0")).isEmpty();
-        assertThat(repository.findAll().getFirst().id()).isEqualTo("project-20");
+    private ProjectMap project(String id) {
+        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of(), List.of(), Map.of(), List.of());
+    }
+
+    @Test void restoresOnlyTheTwentyMostRecentProjectsAndPromotesRescannedProjects() throws Exception {
         var updated = project("project-1");
-        repository.save(updated);
-        assertThat(repository.findAll()).hasSize(20);
-        assertThat(repository.findAll().getFirst()).isEqualTo(updated);
-        assertThat(repository.findById("project-1")).contains(updated);
+        try (var repository = repository()) {
+            for (int i = 0; i < 21; i++) repository.save(project("project-" + i));
+            assertThat(repository.findAll().getFirst().id()).isEqualTo("project-20");
+            repository.save(updated);
+        }
+        try (var restored = repository()) {
+            assertThat(restored.findAll()).hasSize(20);
+            assertThat(restored.findById("project-0")).isEmpty();
+            assertThat(restored.findAll().getFirst()).isEqualTo(updated);
+            assertThat(restored.findById("project-1")).contains(updated);
+        }
+    }
+
+    @Test void deletionSurvivesRestart() throws Exception {
+        var remaining = project("keep");
+        try (var repository = repository()) {
+            repository.save(project("remove"));
+            repository.save(remaining);
+            repository.deleteById("remove");
+        }
+        try (var restored = repository()) {
+            assertThat(restored.findAll()).containsExactly(remaining);
+        }
+    }
+
+    @Test void failedWriteKeepsInMemoryStateAndCanBeRetried() throws Exception {
+        var first = project("first");
+        var file = dataDirectory.resolve("projects.json");
+        try (var repository = repository()) {
+            repository.save(first);
+            var backup = Files.move(file, dataDirectory.resolve("backup.json"));
+            Files.createDirectory(file);
+            assertThatThrownBy(() -> repository.deleteById("first")).isInstanceOf(ProjectStorageException.class);
+            assertThatThrownBy(() -> repository.save(project("second"))).isInstanceOf(ProjectStorageException.class);
+            assertThat(repository.findAll()).containsExactly(first);
+            Files.delete(file);
+            Files.move(backup, file);
+            repository.deleteById("first");
+        }
+        try (var restored = repository()) {
+            assertThat(restored.findAll()).isEmpty();
+        }
+    }
+
+    @Test void preventsTwoInstancesUsingTheSameFileAndPreservesUnreadableSnapshots() throws Exception {
+        try (var repository = repository()) {
+            assertThatThrownBy(this::repository).isInstanceOf(IllegalStateException.class);
+        }
+        var file = dataDirectory.resolve("projects.json");
+        Files.writeString(file, "[");
+        assertThatThrownBy(this::repository).isInstanceOf(IllegalStateException.class);
+        assertThat(Files.readString(file)).isEqualTo("[");
+        Files.delete(file);
+        try (var restored = repository()) {
+            assertThat(restored.findAll()).isEmpty();
+        }
     }
 }

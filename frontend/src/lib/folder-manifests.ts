@@ -1,6 +1,8 @@
 const MANIFEST_NAMES = new Set([
   "pom.xml", "package.json", "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml",
 ]);
+const COMMAND_FILES = new Set(["readme", "readme.md", "readme.markdown", "makefile", "gnumakefile"]);
+const CONTAINER_FILE = /^(?:(?:dockerfile|containerfile)(?:\..+)?|.+\.(?:dockerfile|containerfile))$/;
 const IGNORED_DIRECTORIES = new Set([
   "node_modules", "target", "build", "dist", "venv", "vendor", "coverage",
 ]);
@@ -8,6 +10,12 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_DEPTH = 12;
 
 export type FolderSource = File[] | FileSystemDirectoryHandle;
+
+function isSupportedFile(filename: string) {
+  const name = filename.toLowerCase();
+  return MANIFEST_NAMES.has(filename) || COMMAND_FILES.has(name) ||
+    (!name.startsWith(".") && !name.endsWith(".dockerignore") && CONTAINER_FILE.test(name));
+}
 
 function isIgnoredDirectory(name: string) {
   return name.startsWith(".") || IGNORED_DIRECTORIES.has(name);
@@ -35,7 +43,7 @@ export async function readFolderManifests(source: FolderSource, onRead?: (comple
         if (depth + 1 < MAX_DEPTH && !isIgnoredDirectory(entry.name)) {
           await walkDirectory(entry as FileSystemDirectoryHandle, `${path}/`, depth + 1);
         }
-      } else if (MANIFEST_NAMES.has(entry.name)) {
+      } else if (isSupportedFile(entry.name)) {
         const file = await (entry as FileSystemFileHandle).getFile();
         addManifest(path, file);
       }
@@ -44,7 +52,7 @@ export async function readFolderManifests(source: FolderSource, onRead?: (comple
 
   if (Array.isArray(source)) {
     for (const file of source) {
-      if (!MANIFEST_NAMES.has(file.name)) continue;
+      if (!isSupportedFile(file.name)) continue;
       const [folder, ...segments] = file.webkitRelativePath.split("/");
       if (folder !== name || segments.length === 0 || segments.length > MAX_DEPTH ||
         segments.slice(0, -1).some(isIgnoredDirectory)) continue;
@@ -56,7 +64,7 @@ export async function readFolderManifests(source: FolderSource, onRead?: (comple
   }
 
   if (selected.length === 0) {
-    throw new Error("No se encontraron manifiestos compatibles. Busca una carpeta con pom.xml, package.json o un archivo de Docker Compose.");
+    throw new Error("No se encontraron archivos compatibles. Busca un manifiesto, un README o un Makefile.");
   }
 
   let completed = 0;

@@ -157,7 +157,7 @@ curl http://127.0.0.1:8080/api/projects/scan \
   -d '{"path":"."}'
 ```
 
-A graph contains `id`, `name`, `scannedAt`, `mode`, `filesInspected`, `nodes`, `edges`, `warnings` and `technologies`. Nodes include a technology, kind, `unknown` runtime status, and evidence containing relative filenames and detector descriptions. Edges carry `inferred` or `declared` confidence. The `technologies` list contains names, categories and up to five evidence entries per technology. No raw configuration or full source file contents are returned.
+A graph contains `id`, `name`, `scannedAt`, `mode`, `filesInspected`, `nodes`, `edges`, `warnings`, `technologies`, `composeNames` and `commands`. Nodes include a technology, kind, `unknown` runtime status, and evidence containing relative filenames and detector descriptions. Edges carry `inferred` or `declared` confidence. The `technologies` list contains names, categories and up to five evidence entries per technology. Commands include their origin file, category, and the command text or script invocation.
 
 Invalid paths and invalid input return 400; unknown projects return 404; foreign browser origins or hostnames return 403. Unsupported content types return 415. The frontend reports 502 if the local backend is unavailable.
 
@@ -194,7 +194,9 @@ With both services running and `DEVMAP_SCAN_ROOT` set to this repository, `npm r
 
 ## Safety and scope
 
-DevMap reads only `pom.xml`, `package.json`, `compose.yaml`, `compose.yml`, `docker-compose.yaml` and `docker-compose.yml` in V1. It does **not** execute scripts, Maven/Gradle builds, application code, containers, package lifecycle hooks or repository plugins. It does not resolve dependencies, fetch declared URLs, expand environment variables or read `.env` files while scanning.
+DevMap reads `pom.xml`, `package.json`, the standard Compose filenames, Dockerfiles and Containerfiles, README Markdown files, and Makefiles. The command inventory shows package scripts, explicit `.PHONY` targets, shell code blocks from README files, Compose `command` and `entrypoint` fields, and `CMD` and `ENTRYPOINT` from a Dockerfile's final stage. It omits package installation and publishing hooks and limits the inventory to 200 entries of at most 4,096 characters each.
+
+DevMap does **not** execute scripts, Maven/Gradle builds, application code, containers, package lifecycle hooks or repository plugins. It does not resolve dependencies, fetch declared URLs, expand environment variables or read `.env` files while scanning.
 
 - Hidden and generated directories are skipped, including `.git`, `node_modules`, `target`, `build`, `dist`, `.next`, `.gradle`, `.venv` and `vendor`.
 - Symbolic links are not followed; resolved paths must stay inside the allowed scan tree.

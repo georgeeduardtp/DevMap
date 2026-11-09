@@ -1,5 +1,6 @@
 package com.devmap.detector;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -9,9 +10,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Component
 public class ComposeDetector implements TechnologyDetector {
+    private static final Pattern PROJECT_NAME = Pattern.compile("[a-z0-9][a-z0-9_-]{0,254}");
     private static final Map<String, String> KNOWN_IMAGES = Map.of(
         "redis", "Redis", "postgres", "PostgreSQL", "mongo", "MongoDB", "mysql", "MySQL",
         "rabbitmq", "RabbitMQ", "kafka", "Kafka"
@@ -35,6 +38,7 @@ public class ComposeDetector implements TechnologyDetector {
         List<TechnologyDetector.Component> nodes = new ArrayList<>();
         List<Connection> edges = new ArrayList<>();
         List<Technology> technologies = new ArrayList<>();
+        List<Command> commands = new ArrayList<>();
         technologies.add(new Technology("Docker Compose", "tool", "Services declared in a Compose manifest"));
         services.forEach((name, value) -> {
             if (!(name instanceof String key) || !(value instanceof Map<?, ?> config)) return;
@@ -46,6 +50,18 @@ public class ComposeDetector implements TechnologyDetector {
             if (detected != null) technologies.add(new Technology(detected, "infrastructure", "Compose image: " + base));
             nodes.add(new TechnologyDetector.Component(key, key, "container", technology,
                 "Service declared in Compose; runtime unverified", buildFile(config.get("build"))));
+            for (String field : List.of("entrypoint", "command")) {
+                Object valueToRun = config.get(field);
+                String text = valueToRun instanceof String shell ? shell : null;
+                if (valueToRun instanceof List<?> args && !args.isEmpty() && args.stream().allMatch(String.class::isInstance)) {
+                    var array = JsonNodeFactory.instance.arrayNode();
+                    args.forEach(arg -> array.add((String) arg));
+                    text = array.toString();
+                }
+                if (text != null && !text.isBlank()) {
+                    commands.add(new Command("container", key + " · " + field, text, key));
+                }
+            }
             Object depends = config.get("depends_on");
             Iterable<?> targets = depends instanceof Map<?, ?> m ? m.keySet() : depends instanceof List<?> l ? l : List.of();
             for (Object target : targets) {
@@ -54,7 +70,8 @@ public class ComposeDetector implements TechnologyDetector {
                 }
             }
         });
-        return new Detection(nodes, edges, technologies);
+        String composeName = root.get("name") instanceof String name && PROJECT_NAME.matcher(name).matches() ? name : null;
+        return new Detection(nodes, edges, technologies, composeName, commands);
     }
 
     private static String buildFile(Object build) {

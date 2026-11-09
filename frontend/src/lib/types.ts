@@ -13,6 +13,14 @@ export type DetectedTechnology = {
   evidence: ComponentNode["evidence"];
 };
 
+export type ProjectCommand = {
+  kind: "script" | "documented" | "container";
+  label: string;
+  text: string;
+  file: string;
+  componentId: string | null;
+};
+
 export type ArchitectureGraph = {
   id: string;
   name: string;
@@ -23,4 +31,6 @@ export type ArchitectureGraph = {
   edges: { id: string; source: string; target: string; label: string; confidence: string }[];
   warnings: string[];
   technologies?: DetectedTechnology[];
+  composeNames?: Record<string, string>;
+  commands?: ProjectCommand[];
 };

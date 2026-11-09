@@ -23,6 +23,10 @@ public class ManifestDetector implements TechnologyDetector {
         "npm\\s+run\\s+[\\w:-]+\\s+(?:--workspaces|(?:--workspace|-w)(?:\\s+|=)[\\w@./-]+)"
     );
     private static final Set<String> APPLICATION_SCRIPTS = Set.of("start", "dev", "serve", "preview");
+    private static final Pattern SCRIPT_NAME = Pattern.compile("[a-zA-Z0-9_][a-zA-Z0-9_.:-]{0,127}");
+    private static final Set<String> PACKAGE_MANAGERS = Set.of("npm", "pnpm", "yarn", "bun");
+    private static final Set<String> LIFECYCLE_HOOKS = Set.of("preinstall", "install", "postinstall",
+        "prepublish", "prepublishOnly", "prepack", "postpack", "prepare", "preprepare", "postprepare", "dependencies");
 
     private final ObjectMapper json;
     public ManifestDetector(ObjectMapper json) { this.json = json; }
@@ -37,6 +41,7 @@ public class ManifestDetector implements TechnologyDetector {
         String label;
         boolean application;
         List<Technology> technologies;
+        List<Command> commands = new ArrayList<>();
         if (filename.equals("package.json")) {
             JsonNode manifest = json.readTree(content);
             for (String section : List.of("dependencies", "devDependencies")) {
@@ -47,6 +52,16 @@ public class ManifestDetector implements TechnologyDetector {
             technologies = TechnologyCatalog.npm(dependencies);
             boolean workspace = declaresWorkspaces(manifest);
             application = !workspace || hasApplicationSignals(manifest);
+            String declaredManager = manifest.path("packageManager").asText("").split("@", 2)[0];
+            String manager = PACKAGE_MANAGERS.contains(declaredManager) ? declaredManager : "npm";
+            for (var script : manifest.path("scripts").properties()) {
+                String name = script.getKey();
+                if (!LIFECYCLE_HOOKS.contains(name) && SCRIPT_NAME.matcher(name).matches() && script.getValue().isTextual()
+                    && !script.getValue().textValue().isBlank()) {
+                    commands.add(new Command("script", name, manager + " run " + name));
+                    if (commands.size() > 200) break;
+                }
+            }
             if (workspace) {
                 technologies.add(new Technology("Workspaces", "tool", "Workspace packages declared in package.json"));
             }
@@ -100,7 +115,7 @@ public class ManifestDetector implements TechnologyDetector {
                 technologies.add(new Technology(signal.getKey(), "infrastructure", "Dependency declared: " + dependency));
             }
         });
-        return new Detection(nodes, edges, technologies);
+        return new Detection(nodes, edges, technologies, null, commands);
     }
 
     private static boolean declaresWorkspaces(JsonNode manifest) {

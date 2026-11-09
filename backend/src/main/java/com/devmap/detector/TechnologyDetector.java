@@ -14,5 +14,15 @@ public interface TechnologyDetector {
     }
     record Connection(String source, String target, String label, String confidence) {}
     record Technology(String name, String category, String description) {}
-    record Detection(List<Component> components, List<Connection> connections, List<Technology> technologies) {}
+    record Command(String kind, String label, String text, String componentKey) {
+        public Command(String kind, String label, String text) {
+            this(kind, label, text, null);
+        }
+    }
+    record Detection(List<Component> components, List<Connection> connections, List<Technology> technologies,
+                     String composeName, List<Command> commands) {
+        public Detection(List<Component> components, List<Connection> connections, List<Technology> technologies) {
+            this(components, connections, technologies, null, List.of());
+        }
+    }
 }

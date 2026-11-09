@@ -77,8 +77,10 @@ export function projectModules(graph: ArchitectureGraph): ProjectModule[] {
       names.push(...(technologies ?? []).map((technology) => technology.name));
       role = applicationRole(group.path, names);
     }
+    const composeName = group.composeFile ? graph.composeNames?.[group.composeFile] : undefined;
     const label = group.kind === "other" ? "Otros componentes" : roleLabels[role];
-    return { id, path: group.path, role, label, composeFile: group.composeFile, nodes: group.nodes, technologies };
+    return { id, path: group.path, role, label: composeName ? `${label} · ${composeName}` : label,
+      composeFile: group.composeFile, nodes: group.nodes, technologies };
   }).sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || a.path.localeCompare(b.path));
 }
 

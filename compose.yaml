@@ -11,6 +11,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
+      - project-data:/app/data
       - type: bind
         source: ${DEVMAP_REPOSITORIES:-.}
         target: /workspace
@@ -54,3 +55,6 @@ services:
 networks:
   local:
     driver: bridge
+
+volumes:
+  project-data:

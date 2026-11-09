@@ -4,6 +4,7 @@ import com.devmap.detector.TechnologyDetector;
 import com.devmap.exception.ScanException;
 import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
+import com.devmap.model.ProjectCommand;
 import com.devmap.model.ProjectComponent;
 import com.devmap.model.ProjectConnection;
 import com.devmap.model.ProjectMap;
@@ -178,6 +179,8 @@ public class ScanService {
         private final List<ProjectConnection> edges = new ArrayList<>();
         private final LinkedHashSet<String> warnings = new LinkedHashSet<>();
         private final Map<TechnologyKey, Set<Evidence>> technologyEvidence = new LinkedHashMap<>();
+        private final Map<String, String> composeNames = new LinkedHashMap<>();
+        private final List<ProjectCommand> commands = new ArrayList<>();
 
         private boolean inspect(String relative, String filename, TechnologyDetector detector, String content) {
             try {
@@ -218,6 +221,16 @@ public class ScanService {
                         evidence.add(new Evidence(relative, technology.description()));
                     }
                 }
+                if (detection.composeName() != null) composeNames.put(relative, detection.composeName());
+                for (var command : detection.commands()) {
+                    if (commands.size() >= 200 || command.text().length() > 4096) {
+                        warnings.add("Command list limit reached; some commands were omitted.");
+                        if (commands.size() >= 200) break;
+                        continue;
+                    }
+                    String componentId = command.componentKey() == null ? null : prefix + command.componentKey();
+                    commands.add(new ProjectCommand(command.kind(), command.label(), command.text(), relative, componentId));
+                }
             } catch (Exception e) {
                 // Parser errors may contain source text and secrets. Never expose their messages.
                 warnings.add("Unreadable or invalid manifest skipped: " + relative);
@@ -227,9 +240,9 @@ public class ScanService {
 
         private ProjectMap result(String id, String name, int inspected) {
             if (nodes.isEmpty()) {
-                warnings.add(technologyEvidence.isEmpty()
-                    ? "No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory."
-                    : "No applications or services identified. See the technology inventory for manifest evidence.");
+                warnings.add(inspected == 0
+                    ? "No supported files found in the selected directory."
+                    : "No applications or services identified in the supported files.");
             }
             warnings.add("Static evidence only: dependencies do not prove usage, connectivity or runtime health.");
             var technologies = technologyEvidence.entrySet().stream()
@@ -237,7 +250,7 @@ public class ScanService {
                 .sorted(Comparator.comparing(DetectedTechnology::name))
                 .toList();
             return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges),
-                List.copyOf(warnings), technologies);
+                List.copyOf(warnings), technologies, Map.copyOf(composeNames), List.copyOf(commands));
         }
     }
 }

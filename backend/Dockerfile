@@ -11,7 +11,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/target/devmap-backend-0.1.0.jar ./devmap.jar
+RUN install -d -m 0700 -o 10001 -g 10001 /app/data && touch /app/data/.keep
 USER 10001:10001
 ENV DEVMAP_SCAN_ROOT=/workspace
+ENV DEVMAP_DATA_DIR=/app/data
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/devmap.jar"]

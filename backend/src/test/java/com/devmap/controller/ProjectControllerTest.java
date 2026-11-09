@@ -1,11 +1,13 @@
 package com.devmap.controller;
 
 import com.devmap.exception.ProjectNotFoundException;
+import com.devmap.exception.ProjectStorageException;
 import com.devmap.exception.ScanException;
 import com.devmap.mapper.ProjectMapper;
 import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
 import com.devmap.model.ProjectComponent;
+import com.devmap.model.ProjectCommand;
 import com.devmap.model.ProjectConnection;
 import com.devmap.model.ProjectMap;
 import com.devmap.service.ProjectService;
@@ -18,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -35,13 +38,14 @@ class ProjectControllerTest {
                 new ProjectComponent("redis", "Redis", "data", "Redis", "unknown", List.of())),
             List.of(new ProjectConnection("api-redis", "api", "redis", "may use", "inferred")),
             List.of("Static evidence only"),
-            List.of(new DetectedTechnology("Spring Boot", "framework", List.of(new Evidence("pom.xml", "Spring Boot dependency declared")))));
+            List.of(new DetectedTechnology("Spring Boot", "framework", List.of(new Evidence("pom.xml", "Spring Boot dependency declared")))),
+            Map.of("compose.yaml", "shop"), List.of(new ProjectCommand("script", "dev", "npm run dev", "package.json", null)));
     }
 
     @Test void reportsLocalStaticHealth() throws Exception {
         mvc.perform(get("http://127.0.0.1/api/health")).andExpect(status().isOk())
             .andExpect(content().json("""
-                {"status":"ok","mode":"static","storage":"memory","version":"0.1.0"}
+                {"status":"ok","mode":"static","storage":"json","version":"0.1.0"}
                 """))
             .andExpect(header().string("Cache-Control", "no-store"));
     }
@@ -81,7 +85,9 @@ class ProjectControllerTest {
                    {"id":"redis","label":"Redis","kind":"data","technology":"Redis","status":"unknown","evidence":[]}],
                  "edges":[{"id":"api-redis","source":"api","target":"redis","label":"may use","confidence":"inferred"}],
                  "warnings":["Static evidence only"],"technologies":[
-                   {"name":"Spring Boot","category":"framework","evidence":[{"file":"pom.xml","description":"Spring Boot dependency declared"}]}]}
+                   {"name":"Spring Boot","category":"framework","evidence":[{"file":"pom.xml","description":"Spring Boot dependency declared"}]}],
+                 "composeNames":{"compose.yaml":"shop"},"commands":[
+                   {"kind":"script","label":"dev","text":"npm run dev","file":"package.json","componentId":null}]}
                 """));
         verify(service).scan("shop");
     }
@@ -101,5 +107,12 @@ class ProjectControllerTest {
         mvc.perform(post("http://127.0.0.1/api/projects/scan").contentType("application/json")
             .content("{\"path\":\"..\"}")).andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.detail").value("The directory must be inside DEVMAP_SCAN_ROOT."));
+    }
+
+    @Test void reportsFailedStorageWrites() throws Exception {
+        doThrow(new ProjectStorageException()).when(service).delete("shop");
+        mvc.perform(delete("http://127.0.0.1/api/projects/shop"))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.detail").value(new ProjectStorageException().getMessage()));
     }
 }

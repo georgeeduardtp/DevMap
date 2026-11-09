@@ -12,4 +12,5 @@ spring:
       fail-on-unknown-properties: true
 devmap:
   scan-root: ${DEVMAP_SCAN_ROOT:.}
+  data-dir: ${DEVMAP_DATA_DIR:${user.home}/.devmap}
   frontend-origin: ${DEVMAP_FRONTEND_ORIGIN:http://127.0.0.1:3000}

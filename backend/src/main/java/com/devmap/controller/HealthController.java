@@ -10,6 +10,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class HealthController {
     @GetMapping
     public HealthResponse health() {
-        return new HealthResponse("ok", "static", "memory", "0.1.0");
+        return new HealthResponse("ok", "static", "json", "0.1.0");
     }
 }

@@ -19,4 +19,10 @@ public class GlobalExceptionHandler {
     public ProblemDetail projectNotFound(ProjectNotFoundException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
+
+    @ExceptionHandler(ProjectStorageException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ProblemDetail projectStorageUnavailable(ProjectStorageException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+    }
 }

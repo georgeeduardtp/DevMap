@@ -2,7 +2,9 @@ package com.devmap.service;
 
 import com.devmap.detector.ManifestDetector;
 import com.devmap.detector.ComposeDetector;
+import com.devmap.detector.CommandDetector;
 import com.devmap.exception.ScanException;
+import com.devmap.model.ProjectCommand;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -19,7 +21,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class ScanServiceTest {
     @TempDir Path root;
     private ScanService scanner() {
-        return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector()));
+        return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector(), new CommandDetector()));
     }
 
     @Test void workspaceCoordinatorContributesTechnologiesWithoutAddingAnApplication() {
@@ -75,6 +77,55 @@ class ScanServiceTest {
             .allSatisfy(node -> assertThat(node.evidence()).extracting(evidence -> evidence.file()).containsExactly("deploy/compose.yaml"));
         assertThat(graph.toString()).doesNotContain("user:secret", "../../private", "FROM scratch");
     }
+
+    @Test void recordsLiteralComposeNamesByFile() {
+        var graph = scanner().scanFolder("Compose project", Map.of(
+            "compose.yaml", "name: devmap\nservices: {api: {image: example/api}}",
+            "ops/docker-compose.yml", "name: devmap-tools\nservices: {db: {image: postgres:17}}",
+            "env/compose.yaml", "name: '${PROJECT_NAME:-default}'\nservices: {api: {image: example/api}}"
+        ));
+
+        assertThat(graph.composeNames()).containsExactlyInAnyOrderEntriesOf(Map.of(
+            "compose.yaml", "devmap", "ops/docker-compose.yml", "devmap-tools"
+        ));
+    }
+
+    @Test void discoversCommandsFromIndependentSourcesAndKeepsTheirOrigins() {
+        var graph = scanner().scanFolder("Mixed tools", Map.of(
+            "ui/package.json", """
+                {"packageManager":"pnpm@10.0.0","scripts":{"dev":"example --token PRIVATE","postinstall":"do-not-run"}}
+                """,
+            "README.md", """
+                ```bash
+                uv run example
+                ```
+                ```json
+                {"ignore": "not shell"}
+                ```
+                """,
+            "ops/Makefile", ".PHONY: preview\npreview:\n\tpython -m http.server",
+            "ops/compose.yaml", "services: {api: {command: ['serve', '--port', '9000']}, db: {image: postgres}}",
+            "ops/api.Dockerfile", """
+                FROM example AS build
+                CMD ["ignore-stage"]
+                FROM example
+                RUN <<EOF
+                CMD ["ignore-heredoc"]
+                EOF
+                ENTRYPOINT ["example"]
+                """
+        ));
+
+        assertThat(graph.commands()).containsExactlyInAnyOrder(
+            new ProjectCommand("script", "dev", "pnpm run dev", "ui/package.json", null),
+            new ProjectCommand("documented", "bash", "uv run example", "README.md", null),
+            new ProjectCommand("script", "preview", "make preview", "ops/Makefile", null),
+            new ProjectCommand("container", "api · command", "[\"serve\",\"--port\",\"9000\"]",
+                "ops/compose.yaml", "ops/compose.yaml::api"),
+            new ProjectCommand("container", "ENTRYPOINT", "[\"example\"]", "ops/api.Dockerfile", null)
+        );
+    }
+
     @Test void discoversSignalsWithoutExecutingScriptsOrReadingSecrets() throws Exception {
         Files.writeString(root.resolve("package.json"), """
             {"name":"ignored", "scripts":{"postinstall":"touch SHOULD_NOT_EXIST"},

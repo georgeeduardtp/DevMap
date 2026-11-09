@@ -9,7 +9,7 @@ import { deleteProject, listProjects, scanFolder, scanProject, type ScanProgress
 import type { ArchitectureGraph } from "@/lib/types";
 
 const ArchitectureCanvas = dynamic(() => import("@/features/graph/ArchitectureCanvas"), {
-  ssr: false, loading: () => <MapLoader message="Preparando el mapa…" />,
+  ssr: false, loading: () => <ScreenLoader message="Preparando el mapa…" />,
 });
 
 function describeScan(progress: ScanProgress): { message: string; detail?: string; percentage?: number } {
@@ -25,22 +25,59 @@ function describeScan(progress: ScanProgress): { message: string; detail?: strin
     }
     case "uploading": {
       const percentage = Math.min(100, Math.floor(100 * progress.loaded / progress.total));
-      return { message: "Enviando manifiestos al motor local…", detail: `${percentage} %`, percentage };
+      return { message: "Enviando manifiestos al motor local…", percentage };
     }
     case "analyzing":
       return { message: "Analizando carpeta…" };
   }
 }
 
-function MapLoader({ message, detail, percentage }: { message: string; detail?: string; percentage?: number }) {
-  return <div className="canvas-loading map-loader">
-    <span className="map-spinner" aria-hidden="true" />
-    <span role="status">{message}</span>
-    {percentage !== undefined && (
-      <progress className="scan-progress-bar" aria-label="Envío de manifiestos" value={percentage} max={100} />
-    )}
-    {detail && <span className="scan-progress-detail">{detail}</span>}
-  </div>;
+function ScreenLoader({ message, detail, percentage }: { message: string; detail?: string; percentage?: number }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+
+  return <dialog ref={dialogRef} className="screen-loader" aria-label="Operación en curso"
+    onCancel={(event) => event.preventDefault()}>
+    <div className="screen-loader-content">
+      <div className="loader-visual" aria-hidden="true">
+        <svg viewBox="0 0 160 88" fill="none" focusable="false">
+          <g className="loader-routes">
+            <path d="M24 23H48L80 44H108L136 23M24 65H48L80 44L108 65H136" />
+          </g>
+          <g className="loader-signals">
+            <path d="M24 23H48L80 44" pathLength="1" />
+            <path d="M24 65H48L80 44" pathLength="1" />
+            <path d="M80 44H108L136 23" pathLength="1" />
+            <path d="M80 44L108 65H136" pathLength="1" />
+          </g>
+          <g className="loader-nodes">
+            <rect x="19" y="18" width="10" height="10" rx="3" />
+            <rect x="19" y="60" width="10" height="10" rx="3" />
+            <rect x="131" y="18" width="10" height="10" rx="3" />
+            <rect x="131" y="60" width="10" height="10" rx="3" />
+          </g>
+          <circle className="loader-pulse" cx="80" cy="44" r="15" />
+          <rect className="loader-hub" x="72" y="36" width="16" height="16" rx="4" transform="rotate(45 80 44)" />
+          <circle cx="80" cy="44" r="2.5" fill="var(--green)" />
+        </svg>
+      </div>
+      <div className="loader-message" role="status">
+        <span key={message}>{message}</span>
+      </div>
+      {percentage !== undefined ? (
+        <div className="loader-progress">
+          <progress className="scan-progress-bar" aria-label="Envío de manifiestos" value={percentage} max={100} />
+          <span className="scan-progress-detail" aria-hidden="true">{percentage} %</span>
+        </div>
+      ) : detail && <span className="scan-progress-detail">{detail}</span>}
+    </div>
+  </dialog>;
 }
 
 export default function Home() {
@@ -58,9 +95,12 @@ export default function Home() {
   const modules = useMemo(() => graph ? projectModules(graph) : [], [graph]);
   const compose = modules.find((module) => module.composeFile && module.id === selected);
   const node = graph?.nodes.find((n) => n.id === selected);
-  const scanStatus = scanProgress && describeScan(scanProgress);
   const busy = scanProgress !== null;
   const processing = busy || deletingId !== null;
+  const loadingStatus = scanProgress ? describeScan(scanProgress)
+    : deletingId !== null ? { message: "Borrando proyecto…" }
+    : loadingProjects ? { message: "Cargando proyectos…" }
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -154,7 +194,7 @@ export default function Home() {
         <div className="nav-active"><span>◇</span> Mapa de arquitectura</div>
         <div className="sidebar-section"><p className="eyebrow">PROYECTOS DE ESTA SESIÓN</p><span>{projects.length.toString().padStart(2, "0")}</span></div>
         {projects.length === 0 ? (
-          <p className="muted sidebar-empty">{loadingProjects ? "Cargando proyectos…" : "Los repositorios que analices aparecerán aquí."}</p>
+          <p className="muted sidebar-empty">Los repositorios que analices aparecerán aquí.</p>
         ) : (
           <div className="project-list">
             {projects.map((project) => (
@@ -165,7 +205,7 @@ export default function Home() {
                 </button>
                 <button type="button" className="delete-project" aria-label={`Borrar ${project.name} de la sesión`}
                   disabled={processing || loadingProjects} onClick={() => void removeProject(project)}>
-                  {deletingId === project.id ? "Borrando…" : "Borrar"}
+                  Borrar
                 </button>
               </div>
             ))}
@@ -186,11 +226,10 @@ export default function Home() {
                 void runScan({ phase: "preparing" }, () => scanFolder(files, setScanProgress));
               }
             }} />
-            <span>{scanStatus ? [scanStatus.message, scanStatus.detail].filter(Boolean).join(" ")
-              : "DevMap analiza los manifiestos en tu ordenador."}</span>
+            <span>DevMap analiza los manifiestos en tu ordenador.</span>
           </div>
           <label htmlFor="repository">O ANALIZA UNA RUTA MONTADA</label>
-          <div className="scan-input"><span aria-hidden>▱</span><input id="repository" value={path} onChange={(event) => setPath(event.target.value)} placeholder="Ruta de la carpeta" required disabled={processing} /><button type="submit" disabled={processing || !path.trim()}>{busy ? "En curso…" : "Analizar carpeta"}<span aria-hidden> ↗</span></button></div>
+          <div className="scan-input"><span aria-hidden>▱</span><input id="repository" value={path} onChange={(event) => setPath(event.target.value)} placeholder="Ruta de la carpeta" required disabled={processing} /><button type="submit" disabled={processing || !path.trim()}>Analizar carpeta<span aria-hidden> ↗</span></button></div>
           <div className="scan-help">Escribe una ruta dentro de la carpeta de análisis. Usa «.» para analizar esa carpeta.</div>
         </form>
         {error && <div className="error" role="alert">{error}</div>}
@@ -201,7 +240,6 @@ export default function Home() {
               <div className="canvas">
                 {graph.nodes.length ? <ArchitectureCanvas graph={graph} modules={modules} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
                 <div className="canvas-legend"><span className="legend-solid" />Declarada<span className="legend-dashed" />Inferida</div>
-                {scanStatus && <div className="scan-overlay"><MapLoader {...scanStatus} /></div>}
               </div>
               <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} modules={modules} node={node} compose={compose} onSelect={setSelected} />
             </div>
@@ -212,14 +250,13 @@ export default function Home() {
           <section className="map-panel" aria-label="Mapa de arquitectura">
             <div className="map-toolbar"><strong>Mapa de arquitectura</strong></div>
             <div className="canvas">
-              {scanStatus ? <MapLoader {...scanStatus} /> : (
-                <div className="canvas-loading">Analiza una carpeta para ver su mapa de arquitectura.</div>
-              )}
+              <div className="canvas-loading">Analiza una carpeta para ver su mapa de arquitectura.</div>
             </div>
           </section>
         )}
         <footer className="page-footer"><span>DevMap / Open source, local first.</span><span>La arquitectura empieza por entenderla.</span></footer>
       </main>
     </div>
+    {loadingStatus && <ScreenLoader {...loadingStatus} />}
   </div>;
 }
