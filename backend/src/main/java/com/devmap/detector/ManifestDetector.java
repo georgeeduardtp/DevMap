@@ -3,6 +3,7 @@ package com.devmap.detector;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 import org.xml.sax.helpers.DefaultHandler;
 
@@ -28,6 +29,7 @@ public class ManifestDetector implements TechnologyDetector {
         Set<String> dependencies = new HashSet<>();
         String technology;
         String label;
+        List<Technology> technologies;
         if (filename.equals("package.json")) {
             JsonNode manifest = json.readTree(content);
             for (String section : List.of("dependencies", "devDependencies")) {
@@ -35,6 +37,7 @@ public class ManifestDetector implements TechnologyDetector {
             }
             technology = dependencies.contains("next") ? "Next.js" : dependencies.contains("react") ? "React" : "Node.js";
             label = technology + " application";
+            technologies = TechnologyCatalog.npm(dependencies);
         } else {
             var factory = DocumentBuilderFactory.newInstance();
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
@@ -47,17 +50,17 @@ public class ManifestDetector implements TechnologyDetector {
             var builder = factory.newDocumentBuilder();
             builder.setErrorHandler(new DefaultHandler());
             var document = builder.parse(new InputSource(new StringReader(content)));
-            var elements = document.getElementsByTagName("dependency");
-            for (int i = 0; i < elements.getLength(); i++) {
-                var children = elements.item(i).getChildNodes();
-                for (int j = 0; j < children.getLength(); j++) {
-                    if (children.item(j).getNodeName().equals("artifactId")) {
-                        dependencies.add(children.item(j).getTextContent().strip());
-                    }
-                }
-            }
-            technology = dependencies.stream().anyMatch(d -> d.startsWith("spring-boot")) ? "Spring Boot" : "Java / Maven";
+            dependencies.addAll(artifactIds(document.getElementsByTagName("dependency")));
+            boolean springBoot = dependencies.stream().anyMatch(d -> d.startsWith("spring-boot"));
+            technology = springBoot ? "Spring Boot" : "Java / Maven";
             label = technology + " application";
+            var artifacts = new HashSet<>(dependencies);
+            artifacts.addAll(artifactIds(document.getElementsByTagName("plugin")));
+            String bootEvidence = springBoot ? "Spring Boot dependency declared" : null;
+            if (bootEvidence == null && artifactIds(document.getElementsByTagName("parent")).contains("spring-boot-starter-parent")) {
+                bootEvidence = "Parent declared: spring-boot-starter-parent";
+            }
+            technologies = TechnologyCatalog.maven(artifacts, bootEvidence);
         }
         List<TechnologyDetector.Component> nodes = new ArrayList<>();
         List<Connection> edges = new ArrayList<>();
@@ -77,8 +80,21 @@ public class ManifestDetector implements TechnologyDetector {
                 nodes.add(new TechnologyDetector.Component(signal.getKey(), signal.getKey(), kind, signal.getKey(),
                     "Dependency declared: " + dependency + "; usage and deployment unverified"));
                 edges.add(new Connection("app", signal.getKey(), "may use", "inferred"));
+                technologies.add(new Technology(signal.getKey(), "infrastructure", "Dependency declared: " + dependency));
             }
         });
-        return new Detection(nodes, edges);
+        return new Detection(nodes, edges, technologies);
+    }
+
+    private static Set<String> artifactIds(NodeList elements) {
+        Set<String> ids = new HashSet<>();
+        for (int i = 0; i < elements.getLength(); i++) {
+            var children = elements.item(i).getChildNodes();
+            for (int j = 0; j < children.getLength(); j++) {
+                var child = children.item(j);
+                if (child.getNodeName().equals("artifactId")) ids.add(child.getTextContent().strip());
+            }
+        }
+        return ids;
     }
 }

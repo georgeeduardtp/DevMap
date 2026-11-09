@@ -9,5 +9,6 @@ public interface TechnologyDetector {
 
     record Component(String key, String label, String kind, String technology, String description) {}
     record Connection(String source, String target, String label, String confidence) {}
-    record Detection(List<Component> components, List<Connection> connections) {}
+    record Technology(String name, String category, String description) {}
+    record Detection(List<Component> components, List<Connection> connections, List<Technology> technologies) {}
 }

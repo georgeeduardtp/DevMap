@@ -2,6 +2,7 @@ package com.devmap.service;
 
 import com.devmap.detector.TechnologyDetector;
 import com.devmap.exception.ScanException;
+import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
 import com.devmap.model.ProjectComponent;
 import com.devmap.model.ProjectConnection;
@@ -170,9 +171,13 @@ public class ScanService {
     }
 
     private static class Analysis {
+        private static final int MAX_EVIDENCE_PER_TECHNOLOGY = 5;
+        private record TechnologyKey(String name, String category) {}
+
         private final List<ProjectComponent> nodes = new ArrayList<>();
         private final List<ProjectConnection> edges = new ArrayList<>();
         private final LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        private final Map<TechnologyKey, Set<Evidence>> technologyEvidence = new LinkedHashMap<>();
 
         private boolean inspect(String relative, String filename, TechnologyDetector detector, String content) {
             try {
@@ -194,6 +199,13 @@ public class ScanService {
                     edges.add(new ProjectConnection(prefix + connection.source() + "->" + connection.target(),
                         prefix + connection.source(), prefix + connection.target(), connection.label(), connection.confidence()));
                 }
+                for (var technology : detection.technologies()) {
+                    var key = new TechnologyKey(technology.name(), technology.category());
+                    var evidence = technologyEvidence.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
+                    if (evidence.size() < MAX_EVIDENCE_PER_TECHNOLOGY) {
+                        evidence.add(new Evidence(relative, technology.description()));
+                    }
+                }
             } catch (Exception e) {
                 // Parser errors may contain source text and secrets. Never expose their messages.
                 warnings.add("Unreadable or invalid manifest skipped: " + relative);
@@ -204,7 +216,12 @@ public class ScanService {
         private ProjectMap result(String id, String name, int inspected) {
             if (nodes.isEmpty()) warnings.add("No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory.");
             warnings.add("Static evidence only: dependencies do not prove usage, connectivity or runtime health.");
-            return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges), List.copyOf(warnings));
+            var technologies = technologyEvidence.entrySet().stream()
+                .map(entry -> new DetectedTechnology(entry.getKey().name(), entry.getKey().category(), List.copyOf(entry.getValue())))
+                .sorted(Comparator.comparing(DetectedTechnology::name))
+                .toList();
+            return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges),
+                List.copyOf(warnings), technologies);
         }
     }
 }

@@ -3,17 +3,42 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { deleteProject, listProjects, scanFolder, scanProject } from "@/lib/api";
+import ProjectInspector from "@/features/graph/ProjectInspector";
+import { deleteProject, listProjects, scanFolder, scanProject, type ScanProgress } from "@/lib/api";
 import type { ArchitectureGraph } from "@/lib/types";
 
 const ArchitectureCanvas = dynamic(() => import("@/features/graph/ArchitectureCanvas"), {
   ssr: false, loading: () => <MapLoader message="Preparando el mapa…" />,
 });
 
-function MapLoader({ message }: { message: string }) {
-  return <div className="canvas-loading map-loader" role="status">
+function describeScan(progress: ScanProgress): { message: string; detail?: string; percentage?: number } {
+  switch (progress.phase) {
+    case "selecting":
+      return { message: "Selecciona una carpeta…" };
+    case "preparing": {
+      const files = progress.files;
+      return {
+        message: "Preparando manifiestos…",
+        detail: files ? `${files.completed} de ${files.total} archivos leídos` : undefined,
+      };
+    }
+    case "uploading": {
+      const percentage = Math.min(100, Math.floor(100 * progress.loaded / progress.total));
+      return { message: "Enviando manifiestos al motor local…", detail: `${percentage} %`, percentage };
+    }
+    case "analyzing":
+      return { message: "Analizando carpeta…" };
+  }
+}
+
+function MapLoader({ message, detail, percentage }: { message: string; detail?: string; percentage?: number }) {
+  return <div className="canvas-loading map-loader">
     <span className="map-spinner" aria-hidden="true" />
-    {message}
+    <span role="status">{message}</span>
+    {percentage !== undefined && (
+      <progress className="scan-progress-bar" aria-label="Envío de manifiestos" value={percentage} max={100} />
+    )}
+    {detail && <span className="scan-progress-detail">{detail}</span>}
   </div>;
 }
 
@@ -22,13 +47,16 @@ export default function Home() {
   const [projects, setProjects] = useState<ArchitectureGraph[]>([]);
   const [selected, setSelected] = useState("");
   const [path, setPath] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
+  const [useLegacyPicker, setUseLegacyPicker] = useState(false);
   const folderInput = useRef<HTMLInputElement>(null);
   const node = graph?.nodes.find((n) => n.id === selected);
+  const scanStatus = scanProgress && describeScan(scanProgress);
+  const busy = scanProgress !== null;
   const processing = busy || deletingId !== null;
 
   useEffect(() => {
@@ -45,21 +73,51 @@ export default function Home() {
   }, []);
 
   function show(next: ArchitectureGraph) {
-    setGraph(next); setSelected(next.nodes[0]?.id || ""); setError("");
+    setGraph(next); setSelected(""); setError("");
   }
-  async function runScan(scan: () => Promise<ArchitectureGraph>) {
-    setBusy(true); setError("");
+  async function runScan(initial: ScanProgress, scan: () => Promise<ArchitectureGraph | undefined>) {
+    setScanProgress(initial);
+    setError("");
     try {
       const result = await scan();
+      if (!result) return;
       show(result); setConnected(true);
       setProjects((previous) => [result, ...previous.filter((p) => p.id !== result.id)].slice(0, 20));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo analizar la carpeta."); }
-    finally { setBusy(false); }
+    finally { setScanProgress(null); }
+  }
+
+  function chooseFolder() {
+    if (processing) return;
+    const picker = window as Window & {
+      showDirectoryPicker?: (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle>;
+    };
+    if (useLegacyPicker || !picker.isSecureContext || picker.top !== picker || !picker.showDirectoryPicker) {
+      folderInput.current?.setAttribute("webkitdirectory", "");
+      folderInput.current?.click();
+      return;
+    }
+
+    const openDirectory = picker.showDirectoryPicker.bind(picker);
+    void runScan({ phase: "selecting" }, async () => {
+      let directory: FileSystemDirectoryHandle;
+      try {
+        directory = await openDirectory({ mode: "read" });
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        if (cause instanceof DOMException && cause.name === "SecurityError") {
+          setUseLegacyPicker(true);
+          throw new Error("Pulsa «Elegir carpeta» otra vez para usar el selector alternativo de esta ventana.");
+        }
+        throw cause;
+      }
+      return scanFolder(directory, setScanProgress);
+    });
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const scanPath = path.trim();
-    if (scanPath && !processing) void runScan(() => scanProject(scanPath));
+    if (scanPath && !processing) void runScan({ phase: "analyzing" }, () => scanProject(scanPath));
   }
 
   async function removeProject(project: ArchitectureGraph) {
@@ -117,19 +175,19 @@ export default function Home() {
         <div className="page-heading"><div><p className="eyebrow">WORKSPACE / ARQUITECTURA</p><h1>Conecta los puntos<span>.</span></h1><p className="muted">Descubre las piezas de tu aplicación antes de arrancarla.</p></div><span className="static-pill">⌕ Análisis estático · V1</span></div>
         <form className="scan-form" onSubmit={submit}>
           <div className="folder-picker">
-            <button type="button" disabled={processing} onClick={() => {
-              folderInput.current?.setAttribute("webkitdirectory", "");
-              folderInput.current?.click();
-            }}>Elegir carpeta</button>
+            <button type="button" disabled={processing} onClick={chooseFolder}>Elegir carpeta</button>
             <input ref={folderInput} type="file" hidden onChange={(event) => {
               const files = Array.from(event.currentTarget.files ?? []);
               event.currentTarget.value = "";
-              if (files.length && !processing) void runScan(() => scanFolder(files));
+              if (files.length && !processing) {
+                void runScan({ phase: "preparing" }, () => scanFolder(files, setScanProgress));
+              }
             }} />
-            <span>DevMap analiza los manifiestos en tu ordenador.</span>
+            <span>{scanStatus ? [scanStatus.message, scanStatus.detail].filter(Boolean).join(" ")
+              : "DevMap analiza los manifiestos en tu ordenador."}</span>
           </div>
           <label htmlFor="repository">O ANALIZA UNA RUTA MONTADA</label>
-          <div className="scan-input"><span aria-hidden>▱</span><input id="repository" value={path} onChange={(event) => setPath(event.target.value)} placeholder="Ruta de la carpeta" required disabled={processing} /><button type="submit" disabled={processing || !path.trim()}>{busy ? "Analizando…" : "Analizar carpeta"}<span aria-hidden> ↗</span></button></div>
+          <div className="scan-input"><span aria-hidden>▱</span><input id="repository" value={path} onChange={(event) => setPath(event.target.value)} placeholder="Ruta de la carpeta" required disabled={processing} /><button type="submit" disabled={processing || !path.trim()}>{busy ? "En curso…" : "Analizar carpeta"}<span aria-hidden> ↗</span></button></div>
           <div className="scan-help">Escribe una ruta dentro de la carpeta de análisis. Usa «.» para analizar esa carpeta.</div>
         </form>
         {error && <div className="error" role="alert">{error}</div>}
@@ -138,11 +196,11 @@ export default function Home() {
             <div className="map-toolbar"><div><span className="map-dot" /><strong>{graph.name}</strong></div><span>{graph.nodes.length} componentes <b>·</b> {graph.edges.length} relaciones</span></div>
             <div className="map-content">
               <div className="canvas">
-                {graph.nodes.length ? <ArchitectureCanvas graph={graph} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
+                {graph.nodes.length ? <ArchitectureCanvas graph={graph} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
                 <div className="canvas-legend"><span className="legend-solid" />Declarada<span className="legend-dashed" />Inferida</div>
-                {busy && <div className="scan-overlay"><MapLoader message="Analizando carpeta…" /></div>}
+                {scanStatus && <div className="scan-overlay"><MapLoader {...scanStatus} /></div>}
               </div>
-              <aside className="inspector"><label className="eyebrow" htmlFor="component">DETALLE DEL COMPONENTE</label><select id="component" className="component-select" value={selected} onChange={(event) => setSelected(event.target.value)} disabled={!graph.nodes.length}>{graph.nodes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>{node ? <><span className="component-symbol">{node.kind === "application" ? "{ }" : "▤"}</span><h2>{node.label}</h2><span className="technology-badge">{node.technology}</span><dl><dt>Estado de ejecución</dt><dd>○ Desconocido</dd><dt>Origen</dt><dd>Análisis estático</dd></dl><h3>Evidencia</h3>{node.evidence.map((evidence, index) => <div className="evidence" key={index}><code>{evidence.file}</code><p>{evidence.description}</p></div>)}<p className="inspector-note">Una declaración indica una posibilidad de uso. No confirma que el servicio esté desplegado o activo.</p></> : <p className="muted">Selecciona un componente del mapa.</p>}</aside>
+              <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} node={node} onSelect={setSelected} />
             </div>
             <div className="map-footer"><span>○ Sin comprobaciones de red</span><span>Arrastra para explorar · Scroll para acercar</span></div>
           </section>
@@ -151,7 +209,7 @@ export default function Home() {
           <section className="map-panel" aria-label="Mapa de arquitectura">
             <div className="map-toolbar"><strong>Mapa de arquitectura</strong></div>
             <div className="canvas">
-              {busy ? <MapLoader message="Analizando carpeta…" /> : (
+              {scanStatus ? <MapLoader {...scanStatus} /> : (
                 <div className="canvas-loading">Analiza una carpeta para ver su mapa de arquitectura.</div>
               )}
             </div>

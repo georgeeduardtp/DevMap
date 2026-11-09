@@ -6,6 +6,13 @@ export type ComponentNode = {
   status: "unknown";
   evidence: { file: string; description: string }[];
 };
+
+export type DetectedTechnology = {
+  name: string;
+  category: "language" | "framework" | "library" | "tool" | "runtime" | "infrastructure";
+  evidence: ComponentNode["evidence"];
+};
+
 export type ArchitectureGraph = {
   id: string;
   name: string;
@@ -15,4 +22,5 @@ export type ArchitectureGraph = {
   nodes: ComponentNode[];
   edges: { id: string; source: string; target: string; label: string; confidence: string }[];
   warnings: string[];
+  technologies?: DetectedTechnology[];
 };

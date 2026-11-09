@@ -21,6 +21,7 @@ assert.ok(graph.nodes.some((node) => node.technology === "Next.js" &&
   node.evidence.some((entry) => entry.file === "frontend/package.json")));
 assert.ok(graph.nodes.every((node) => node.status === "unknown"));
 assert.ok(graph.edges.some((edge) => edge.confidence === "declared"));
+assert.ok(graph.technologies.some((technology) => technology.name === "React Flow" && technology.category === "library"));
 const projects = await (await request("/api/projects")).json();
 assert.ok(projects.some((project) => project.id === graph.id));
 assert.equal((await request(`/api/projects/${graph.id}`)).status, 200);
@@ -33,8 +34,11 @@ const scanFolder = (manifests, headers = {}) => request("/api/projects/scan-fold
   body: JSON.stringify({ name: "Folder outside the mount", manifests }),
 });
 const manifests = {
-  "web/package.json": JSON.stringify({ dependencies: { next: "16" } }),
-  "compose.yaml": "services:\n  api:\n    image: example/api\n    depends_on: [cache]\n  cache:\n    image: redis:7\n",
+  "web/package.json": JSON.stringify({
+    dependencies: { next: "16", react: "19", "@xyflow/react": "12", "@maptiler/sdk": "4", pg: "8" },
+    devDependencies: { typescript: "5", vite: "7" },
+  }),
+  "compose.yaml": "services:\n  api:\n    image: example/api\n    depends_on: [db]\n  db:\n    image: postgres:17\n",
 };
 const folderResponse = await scanFolder(manifests);
 assert.equal(folderResponse.status, 200, await folderResponse.clone().text());
@@ -44,6 +48,15 @@ assert.equal(folderGraph.filesInspected, 2);
 assert.ok(folderGraph.nodes.some((node) => node.technology === "Next.js" &&
   node.evidence.some((entry) => entry.file === "web/package.json")));
 assert.ok(folderGraph.edges.some((edge) => edge.confidence === "declared"));
+for (const [name, category] of [["React Flow", "library"], ["MapTiler", "library"], ["TypeScript", "language"], ["Vite", "tool"]]) {
+  const technology = folderGraph.technologies.find((item) => item.name === name);
+  assert.equal(technology?.category, category);
+  assert.ok(technology.evidence.some((entry) => entry.file === "web/package.json"));
+  assert.ok(!folderGraph.nodes.some((node) => node.technology === name));
+}
+const postgres = folderGraph.technologies.filter((technology) => technology.name === "PostgreSQL");
+assert.equal(postgres.length, 1);
+assert.deepEqual(new Set(postgres[0].evidence.map((entry) => entry.file)), new Set(["web/package.json", "compose.yaml"]));
 assert.equal((await request(`/api/projects/${folderGraph.id}`)).status, 200);
 assert.equal((await scanFolder({ "../package.json": "{}" })).status, 400);
 assert.equal((await scanFolder({ ".env": "TOKEN=example" })).status, 400);
@@ -62,7 +75,7 @@ const remaining = await (await request("/api/projects")).json();
 assert.ok(!remaining.some((project) => project.id === folderGraph.id));
 assert.ok(remaining.some((project) => project.id === graph.id));
 
-for (const logo of ["nextdotjs", "springboot", "postgresql"]) {
+for (const logo of ["nextdotjs", "springboot", "postgresql", "maptiler", "xyflow"]) {
   const asset = await request(`/technologies/${logo}.svg`);
   assert.equal(asset.status, 200);
   assert.match(await asset.text(), /^<svg\b/);
@@ -73,4 +86,4 @@ assert.equal(page.status, 200);
 const pageHtml = await page.text();
 assert.match(pageHtml, /Analiza una carpeta para ver su mapa de arquitectura\./);
 assert.match(pageHtml, /Elegir carpeta/);
-console.log("Integration OK: mounted scan, folder import, session deletion, local technology logos and request restrictions.");
+console.log("Integration OK: mounted scan, folder import, technology inventory, session deletion, local logos and request restrictions.");

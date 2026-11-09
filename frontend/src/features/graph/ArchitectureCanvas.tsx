@@ -5,7 +5,11 @@ import { Background, Controls, MiniMap, Position, ReactFlow, type Node, type Edg
 import TechnologyIcon from "@/components/TechnologyIcon";
 import type { ArchitectureGraph } from "@/lib/types";
 
-export default function ArchitectureCanvas({ graph, onSelect }: { graph: ArchitectureGraph; onSelect: (id: string) => void }) {
+export default function ArchitectureCanvas({ graph, selectedId, onSelect }: {
+  graph: ArchitectureGraph;
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
   const nodes = useMemo<Node[]>(() => {
     const counts = [0, 0, 0];
     return graph.nodes.map((node) => {
@@ -14,6 +18,7 @@ export default function ArchitectureCanvas({ graph, onSelect }: { graph: Archite
       return {
         id: node.id, position: { x: column * 340, y: row * 155 },
         sourcePosition: Position.Right, targetPosition: Position.Left,
+        selected: node.id === selectedId,
         className: `architecture-node ${node.kind}`,
         data: {
           label: <div>
@@ -27,7 +32,7 @@ export default function ArchitectureCanvas({ graph, onSelect }: { graph: Archite
         },
       };
     });
-  }, [graph]);
+  }, [graph, selectedId]);
   const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => ({
     ...edge, type: "smoothstep", animated: false,
     label: edge.confidence === "inferred" ? "uso posible" : "dependencia declarada",
@@ -37,6 +42,7 @@ export default function ArchitectureCanvas({ graph, onSelect }: { graph: Archite
   return <ReactFlow key={graph.id + graph.scannedAt} nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: 0.22 }}
     minZoom={0.15} maxZoom={1.6} nodesDraggable={false} nodesConnectable={false}
     onNodeClick={(_, node) => onSelect(node.id)}
+    onPaneClick={() => onSelect("")}
     proOptions={{ hideAttribution: false }} colorMode="dark">
     <Background color="#31433e" gap={24} size={1} />
     <Controls showInteractive={false} />

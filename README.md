@@ -23,7 +23,7 @@ The command starts both services and waits until they are ready. The first run d
 
 To stop the app, run `docker compose down` from the same folder. This clears the maps stored in the current backend session.
 
-The folder picker works with folders outside the Docker mount. The browser sends only supported manifests and their relative paths to the local DevMap server. Hidden and generated directories are skipped. DevMap analyzes the manifests in memory and adds the resulting map to the current session.
+The folder picker works with folders outside the Docker mount. When the browser provides direct folder access, DevMap skips hidden and generated directories such as `node_modules` before traversing them. With the fallback picker, the browser enumerates the folder and DevMap filters the results before opening files. DevMap sends supported manifests and their relative paths to its local server, analyzes them in memory, and adds the resulting map to the current session.
 
 ## What works today
 
@@ -32,6 +32,7 @@ The folder picker works with folders outside the Docker mount. The browser sends
 - Identify Redis, PostgreSQL, MongoDB, MySQL, RabbitMQ and Kafka dependency signals.
 - Read Compose service declarations and explicit `depends_on` relationships.
 - Explore a map with zoom, pan, a minimap, technology logos, component details and source-file evidence.
+- Browse a project-wide technology inventory when no component is selected. Known manifest declarations identify languages, frameworks, libraries, tools, runtimes and infrastructure, with source-file evidence for each technology.
 - Distinguish **inferred** relationships from **declared** ones. Runtime state always remains **unknown**.
 - Reopen or remove scanned projects during the backend session. The session holds up to 20 maps. Rescans replace previous results.
 
@@ -154,7 +155,7 @@ curl http://127.0.0.1:8080/api/projects/scan \
   -d '{"path":"."}'
 ```
 
-A graph contains `id`, `name`, `scannedAt`, `mode`, `filesInspected`, `nodes`, `edges` and `warnings`. Nodes include a technology, kind, `unknown` runtime status, and evidence containing relative filenames and detector descriptions. Edges carry `inferred` or `declared` confidence. No raw configuration or full source file contents are returned.
+A graph contains `id`, `name`, `scannedAt`, `mode`, `filesInspected`, `nodes`, `edges`, `warnings` and `technologies`. Nodes include a technology, kind, `unknown` runtime status, and evidence containing relative filenames and detector descriptions. Edges carry `inferred` or `declared` confidence. The `technologies` list contains names, categories and up to five evidence entries per technology. No raw configuration or full source file contents are returned.
 
 Invalid paths and invalid input return 400; unknown projects return 404; foreign browser origins or hostnames return 403. Unsupported content types return 415. The frontend reports 502 if the local backend is unavailable.
 

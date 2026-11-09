@@ -45,6 +45,16 @@
   gap: 12px;
   color: var(--text);
 }
+.scan-progress-bar {
+  width: min(240px, 100%);
+  height: 8px;
+  accent-color: var(--green);
+}
+.scan-progress-detail {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .map-spinner {
   width: 28px;
   height: 28px;
@@ -74,6 +84,39 @@
   background: #e2ece3;
   color: #203322;
 }
+.technology-overview-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+.technology-group h3 {
+  margin: 18px 0 8px;
+  color: #b7c8bb;
+  font-size: 10px;
+  letter-spacing: .6px;
+}
+.technology-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.technology-list summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  list-style: none;
+}
+.technology-list summary::-webkit-details-marker { display: none; }
+.technology-list summary::after { content: "+"; margin-left: auto; color: var(--muted); }
+.technology-list details[open] summary::after { content: "−"; }
+.technology-list summary:hover, .technology-list details[open] summary { background: #1c2c24; }
+.technology-list summary:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 @media(min-width:1500px){main{padding:40px 48px 0}.canvas{height:540px}.inspector{max-height:540px}.map-content{grid-template-columns:minmax(0,1fr) 270px}}
 @media(max-width:1150px){.workspace{grid-template-columns:190px minmax(0,1fr)}main{padding:28px 22px 0}.sidebar{padding:28px 12px}.sidebar-section .eyebrow{font-size:8px}.map-content{grid-template-columns:minmax(0,1fr) 200px}.inspector{padding:20px 14px}.static-pill{display:none}.scan-help{flex-direction:column;align-items:flex-start}.findings{gap:20px}.findings>div{min-width:140px}}
 @media(max-width:850px){.topbar{padding:0 20px;height:65px}.top-tagline{display:none}.workspace{display:block}.sidebar{display:none}main{padding:25px 18px 0}.page-heading{margin-bottom:22px}h1{font-size:29px}.map-content{grid-template-columns:minmax(0,1fr) 200px}.canvas{height:400px}.inspector{max-height:400px}.map-toolbar>span{font-size:9px}.scan-form{padding:16px}.page-footer span:last-child{display:none}}

@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.*;
 
 class ProjectRepositoryTest {
     private ProjectMap project(String id) {
-        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of());
+        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of(), List.of());
     }
 
     @Test void keepsOnlyTwentyMostRecentProjectsAndPromotesRescannedProjects() {

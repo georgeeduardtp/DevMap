@@ -3,6 +3,7 @@ package com.devmap.controller;
 import com.devmap.exception.ProjectNotFoundException;
 import com.devmap.exception.ScanException;
 import com.devmap.mapper.ProjectMapper;
+import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
 import com.devmap.model.ProjectComponent;
 import com.devmap.model.ProjectConnection;
@@ -33,7 +34,8 @@ class ProjectControllerTest {
                     List.of(new Evidence("pom.xml", "Application manifest"))),
                 new ProjectComponent("redis", "Redis", "data", "Redis", "unknown", List.of())),
             List.of(new ProjectConnection("api-redis", "api", "redis", "may use", "inferred")),
-            List.of("Static evidence only"));
+            List.of("Static evidence only"),
+            List.of(new DetectedTechnology("Spring Boot", "framework", List.of(new Evidence("pom.xml", "Spring Boot dependency declared")))));
     }
 
     @Test void reportsLocalStaticHealth() throws Exception {
@@ -78,7 +80,8 @@ class ProjectControllerTest {
                     "status":"unknown","evidence":[{"file":"pom.xml","description":"Application manifest"}]},
                    {"id":"redis","label":"Redis","kind":"data","technology":"Redis","status":"unknown","evidence":[]}],
                  "edges":[{"id":"api-redis","source":"api","target":"redis","label":"may use","confidence":"inferred"}],
-                 "warnings":["Static evidence only"]}
+                 "warnings":["Static evidence only"],"technologies":[
+                   {"name":"Spring Boot","category":"framework","evidence":[{"file":"pom.xml","description":"Spring Boot dependency declared"}]}]}
                 """));
         verify(service).scan("shop");
     }
