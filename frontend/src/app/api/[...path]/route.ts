@@ -11,12 +11,20 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     return NextResponse.json({ detail: "Solo se permiten peticiones locales." }, { status: 403 });
   }
   const path = (await context.params).path.join("/");
-  const valid = request.method === "GET" ? /^(health|projects|projects\/[a-f0-9-]{36})$/.test(path) : path === "projects/scan";
+  const folderScan = path === "projects/scan-folder";
+  const singleProject = /^projects\/[a-f0-9-]{36}$/.test(path);
+  const valid = (request.method === "GET" && (singleProject || path === "health" || path === "projects"))
+    || (request.method === "POST" && (path === "projects/scan" || folderScan))
+    || (request.method === "DELETE" && singleProject);
   if (!valid) return NextResponse.json({ detail: "Endpoint no disponible." }, { status: 404 });
   let body: string | undefined;
   if (request.method === "POST") {
+    const maxBodyBytes = folderScan ? 12 * 1024 * 1024 : 8192;
     if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") {
       return NextResponse.json({ detail: "Se requiere application/json." }, { status: 415 });
+    }
+    if (Number(request.headers.get("content-length")) > maxBodyBytes) {
+      return NextResponse.json({ detail: "Petición demasiado grande." }, { status: 413 });
     }
     const reader = request.body?.getReader();
     let size = 0;
@@ -26,7 +34,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > 8192) {
+        if (size > maxBodyBytes) {
           await reader.cancel();
           return NextResponse.json({ detail: "Petición demasiado grande." }, { status: 413 });
         }
@@ -44,11 +52,11 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       method: request.method, body, headers: { "Content-Type": "application/json" },
       cache: "no-store", redirect: "error", signal: AbortSignal.timeout(20_000),
     });
-    return new NextResponse(await response.text(), {
+    return new NextResponse(response.status === 204 ? null : await response.text(), {
       status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   } catch {
     return NextResponse.json({ detail: "El motor local no responde. Arranca el backend y vuelve a intentarlo." }, { status: 502 });
   }
 }
-export { proxy as GET, proxy as POST };
+export { proxy as GET, proxy as POST, proxy as DELETE };

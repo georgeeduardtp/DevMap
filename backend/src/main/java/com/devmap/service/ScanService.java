@@ -23,6 +23,9 @@ public class ScanService {
     private static final Set<String> IGNORED = Set.of(".git", "node_modules", "target", "build", "dist", ".next",
         ".gradle", ".idea", ".vscode", ".venv", "venv", "vendor", "coverage");
     private static final int MAX_ENTRIES = 20_000, MAX_MANIFESTS = 200, MAX_FILE_BYTES = 1_048_576;
+    private static final int MAX_TOTAL_BYTES = 10 * MAX_FILE_BYTES;
+    private static final int MAX_DEPTH = 12;
+    private static final long SCAN_BUDGET_NANOS = 10_000_000_000L;
     private final Path allowedRoot;
     private final List<TechnologyDetector> detectors;
 
@@ -43,15 +46,14 @@ public class ScanService {
         if (!root.startsWith(allowedRoot) || !Files.isDirectory(root)) {
             throw new ScanException("The directory must be inside DEVMAP_SCAN_ROOT.");
         }
-        List<ProjectComponent> nodes = new ArrayList<>();
-        List<ProjectConnection> edges = new ArrayList<>();
-        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        var analysis = new Analysis();
+        var warnings = analysis.warnings;
         int[] entries = {0}, manifests = {0}, bytes = {0};
-        long deadline = System.nanoTime() + 10_000_000_000L;
+        long deadline = System.nanoTime() + SCAN_BUDGET_NANOS;
         try {
-            Files.walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), 12, new SimpleFileVisitor<>() {
+            Files.walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), MAX_DEPTH, new SimpleFileVisitor<>() {
                 private FileVisitResult budget() {
-                    if (++entries[0] > MAX_ENTRIES || manifests[0] >= MAX_MANIFESTS || bytes[0] >= 10 * MAX_FILE_BYTES || System.nanoTime() > deadline) {
+                    if (++entries[0] > MAX_ENTRIES || manifests[0] >= MAX_MANIFESTS || bytes[0] >= MAX_TOTAL_BYTES || System.nanoTime() > deadline) {
                         warnings.add("Scan limit reached; this map is partial.");
                         return FileVisitResult.TERMINATE;
                     }
@@ -71,7 +73,7 @@ public class ScanService {
                     }
                     if (!attrs.isRegularFile() || attrs.isSymbolicLink()) return FileVisitResult.CONTINUE;
                     String filename = file.getFileName().toString();
-                    var detector = detectors.stream().filter(d -> d.supports(filename)).findFirst();
+                    var detector = findDetector(filename);
                     if (detector.isEmpty()) return FileVisitResult.CONTINUE;
                     String relative = root.relativize(file).toString().replace('\\', '/');
                     if (attrs.size() > MAX_FILE_BYTES) {
@@ -91,23 +93,10 @@ public class ScanService {
                         }
                         bytes[0] += buffer.position();
                         buffer.flip();
-                        var detection = detector.get().detect(filename, StandardCharsets.UTF_8.decode(buffer).toString());
-                        if (nodes.size() + detection.components().size() > 1000 || edges.size() + detection.connections().size() > 2000) {
-                            warnings.add("Graph size limit reached; this map is partial.");
+                        if (!analysis.inspect(relative, filename, detector.get(), StandardCharsets.UTF_8.decode(buffer).toString())) {
                             return FileVisitResult.TERMINATE;
                         }
-                        String prefix = relative + "::";
-                        for (var c : detection.components()) {
-                            String module = root.relativize(file.getParent()).toString().replace('\\', '/');
-                            String label = c.key().equals("app") && !module.isEmpty() ? module + " · " + c.label() : c.label();
-                            nodes.add(new ProjectComponent(prefix + c.key(), label, c.kind(), c.technology(), "unknown",
-                                List.of(new Evidence(relative, c.description()))));
-                        }
-                        for (var c : detection.connections()) {
-                            edges.add(new ProjectConnection(prefix + c.source() + "->" + c.target(), prefix + c.source(), prefix + c.target(), c.label(), c.confidence()));
-                        }
-                    } catch (Exception e) {
-                        // Parser errors may contain source text and secrets. Never expose their messages.
+                    } catch (IOException e) {
                         warnings.add("Unreadable or invalid manifest skipped: " + relative);
                     }
                     return FileVisitResult.CONTINUE;
@@ -118,10 +107,104 @@ public class ScanService {
                 }
             });
         } catch (IOException e) { throw new ScanException("The directory could not be scanned. Check local read permissions."); }
-        if (nodes.isEmpty()) warnings.add("No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory.");
-        warnings.add("Static evidence only: dependencies do not prove usage, connectivity or runtime health.");
         String id = UUID.nameUUIDFromBytes(root.toString().getBytes(StandardCharsets.UTF_8)).toString();
         String name = root.getFileName() == null ? "Project" : root.getFileName().toString();
-        return new ProjectMap(id, name, Instant.now(), "static", manifests[0], List.copyOf(nodes), List.copyOf(edges), List.copyOf(warnings));
+        return analysis.result(id, name, manifests[0]);
+    }
+
+    public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests) {
+        if (!validSegment(name) || name.length() > 255) {
+            throw new ScanException("El nombre de la carpeta no es válido.");
+        }
+        if (manifests == null || manifests.isEmpty() || manifests.size() > MAX_MANIFESTS) {
+            throw new ScanException("Selecciona una carpeta con entre 1 y 200 manifiestos compatibles.");
+        }
+        int totalBytes = 0;
+        for (var entry : manifests.entrySet()) {
+            String relative = entry.getKey();
+            if (relative == null || relative.length() > 4096) {
+                throw new ScanException("La carpeta contiene una ruta de manifiesto no permitida.");
+            }
+            String[] segments = relative.split("/", -1);
+            String filename = segments[segments.length - 1];
+            if (segments.length > MAX_DEPTH
+                || Arrays.stream(segments).anyMatch(segment -> !validSegment(segment) || segment.startsWith(".") || IGNORED.contains(segment))
+                || findDetector(filename).isEmpty()) {
+                throw new ScanException("La carpeta contiene una ruta de manifiesto no permitida.");
+            }
+            String content = entry.getValue();
+            if (content == null || content.length() > MAX_FILE_BYTES) {
+                throw new ScanException("Cada manifiesto debe tener un tamaño máximo de 1 MiB.");
+            }
+            int fileBytes = content.getBytes(StandardCharsets.UTF_8).length;
+            totalBytes += fileBytes;
+            if (fileBytes > MAX_FILE_BYTES || totalBytes > MAX_TOTAL_BYTES) {
+                throw new ScanException("El límite es de 1 MiB por manifiesto y 10 MiB por carpeta.");
+            }
+        }
+
+        var analysis = new Analysis();
+        long deadline = System.nanoTime() + SCAN_BUDGET_NANOS;
+        int inspected = 0;
+        for (var entry : manifests.entrySet()) {
+            if (System.nanoTime() > deadline) {
+                analysis.warnings.add("Scan limit reached; this map is partial.");
+                break;
+            }
+            String relative = entry.getKey();
+            String filename = relative.substring(relative.lastIndexOf('/') + 1);
+            inspected++;
+            if (!analysis.inspect(relative, filename, findDetector(filename).orElseThrow(), entry.getValue())) break;
+        }
+        return analysis.result(UUID.randomUUID().toString(), name, inspected);
+    }
+
+    private Optional<TechnologyDetector> findDetector(String filename) {
+        return detectors.stream().filter(detector -> detector.supports(filename)).findFirst();
+    }
+
+    private static boolean validSegment(String segment) {
+        return segment != null && !segment.isBlank() && !segment.equals(".") && !segment.equals("..")
+            && segment.indexOf('/') < 0 && segment.indexOf('\\') < 0 && segment.indexOf(':') < 0
+            && segment.chars().noneMatch(Character::isISOControl);
+    }
+
+    private static class Analysis {
+        private final List<ProjectComponent> nodes = new ArrayList<>();
+        private final List<ProjectConnection> edges = new ArrayList<>();
+        private final LinkedHashSet<String> warnings = new LinkedHashSet<>();
+
+        private boolean inspect(String relative, String filename, TechnologyDetector detector, String content) {
+            try {
+                var detection = detector.detect(filename, content);
+                if (nodes.size() + detection.components().size() > 1000 || edges.size() + detection.connections().size() > 2000) {
+                    warnings.add("Graph size limit reached; this map is partial.");
+                    return false;
+                }
+                String prefix = relative + "::";
+                int separator = relative.lastIndexOf('/');
+                String module = separator < 0 ? "" : relative.substring(0, separator);
+                for (var component : detection.components()) {
+                    String label = component.key().equals("app") && !module.isEmpty()
+                        ? module + " · " + component.label() : component.label();
+                    nodes.add(new ProjectComponent(prefix + component.key(), label, component.kind(), component.technology(), "unknown",
+                        List.of(new Evidence(relative, component.description()))));
+                }
+                for (var connection : detection.connections()) {
+                    edges.add(new ProjectConnection(prefix + connection.source() + "->" + connection.target(),
+                        prefix + connection.source(), prefix + connection.target(), connection.label(), connection.confidence()));
+                }
+            } catch (Exception e) {
+                // Parser errors may contain source text and secrets. Never expose their messages.
+                warnings.add("Unreadable or invalid manifest skipped: " + relative);
+            }
+            return true;
+        }
+
+        private ProjectMap result(String id, String name, int inspected) {
+            if (nodes.isEmpty()) warnings.add("No supported manifests found. Look for pom.xml, package.json or a Compose file in the selected directory.");
+            warnings.add("Static evidence only: dependencies do not prove usage, connectivity or runtime health.");
+            return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges), List.copyOf(warnings));
+        }
     }
 }

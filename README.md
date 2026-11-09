@@ -17,11 +17,13 @@ DevMap is an open-source developer tool that turns a local repository into an in
    docker compose up --build -d --wait
    ```
 
-3. Open [DevMap](http://127.0.0.1:3000). With the default mount, enter `.` and click **Analizar carpeta** to scan DevMap itself.
+3. Open [DevMap](http://127.0.0.1:3000), click **Elegir carpeta**, and select a repository on your computer. With the default mount, you can also enter `.` to scan DevMap itself.
 
 The command starts both services and waits until they are ready. The first run downloads images and dependencies, so it may take a few minutes. Docker provides Java, Maven and Node.js.
 
 To stop the app, run `docker compose down` from the same folder. This clears the maps stored in the current backend session.
+
+The folder picker works with folders outside the Docker mount. The browser sends only supported manifests and their relative paths to the local DevMap server. Hidden and generated directories are skipped. DevMap analyzes the manifests in memory and adds the resulting map to the current session.
 
 ## What works today
 
@@ -29,9 +31,11 @@ To stop the app, run `docker compose down` from the same folder. This clears the
 - Discover Maven applications, Spring Boot dependencies, npm applications, Next.js and React.
 - Identify Redis, PostgreSQL, MongoDB, MySQL, RabbitMQ and Kafka dependency signals.
 - Read Compose service declarations and explicit `depends_on` relationships.
-- Explore a map with zoom, pan, a minimap, component details and source-file evidence.
+- Explore a map with zoom, pan, a minimap, technology logos, component details and source-file evidence.
 - Distinguish **inferred** relationships from **declared** ones. Runtime state always remains **unknown**.
-- Reopen up to 20 scanned projects during the backend session. Rescans replace previous results.
+- Reopen or remove scanned projects during the backend session. The session holds up to 20 maps. Rescans replace previous results.
+
+Technology logos are served locally from [Simple Icons](https://github.com/simple-icons/simple-icons/tree/16.37.0).
 
 The initial UI is in Spanish; this README is in English for contributors.
 
@@ -129,7 +133,9 @@ Backend flow: `ProjectController → ProjectService → ScanService / ProjectRep
 | GET | `/api/health` | Engine health, static mode and in-memory storage |
 | GET | `/api/projects` | Latest maps in this session, newest first |
 | GET | `/api/projects/{id}` | One map, or 404 |
+| DELETE | `/api/projects/{id}` | Remove a map from session memory and return 204 |
 | POST | `/api/projects/scan` | Scan a local directory and return its graph |
+| POST | `/api/projects/scan-folder` | Analyze manifest text from the browser's folder picker and return its graph |
 
 PowerShell:
 

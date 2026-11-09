@@ -6,6 +6,7 @@ import com.devmap.repository.ProjectRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ProjectService {
@@ -25,7 +26,15 @@ public class ProjectService {
         return repository.findById(id).orElseThrow(ProjectNotFoundException::new);
     }
 
+    public synchronized void delete(String id) {
+        repository.deleteById(id);
+    }
+
     public synchronized ProjectMap scan(String path) {
         return repository.save(scanner.scan(path));
+    }
+
+    public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests) {
+        return repository.save(scanner.scanFolder(name, manifests));
     }
 }

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Background, Controls, MiniMap, Position, ReactFlow, type Node, type Edge } from "@xyflow/react";
+import TechnologyIcon from "@/components/TechnologyIcon";
 import type { ArchitectureGraph } from "@/lib/types";
 
 export default function ArchitectureCanvas({ graph, onSelect }: { graph: ArchitectureGraph; onSelect: (id: string) => void }) {
@@ -14,7 +15,16 @@ export default function ArchitectureCanvas({ graph, onSelect }: { graph: Archite
         id: node.id, position: { x: column * 340, y: row * 155 },
         sourcePosition: Position.Right, targetPosition: Position.Left,
         className: `architecture-node ${node.kind}`,
-        data: { label: <div><span className="node-tech">{node.technology}</span><strong>{node.label}</strong><span className="node-state">○ Estado desconocido</span></div> },
+        data: {
+          label: <div>
+            <div className="node-technology">
+              <TechnologyIcon technology={node.technology} />
+              <span className="node-tech">{node.technology}</span>
+            </div>
+            <strong>{node.label}</strong>
+            <span className="node-state">○ Estado desconocido</span>
+          </div>,
+        },
       };
     });
   }, [graph]);

@@ -21,6 +21,10 @@ public class ProjectRepository {
         return Optional.ofNullable(projects.get(id));
     }
 
+    public synchronized void deleteById(String id) {
+        projects.remove(id);
+    }
+
     public synchronized ProjectMap save(ProjectMap project) {
         projects.remove(project.id());
         projects.put(project.id(), project);

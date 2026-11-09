@@ -17,6 +17,7 @@ ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 COPY --from=build --chown=node:node /app/frontend/.next/standalone ./
 COPY --from=build --chown=node:node /app/frontend/.next/static ./frontend/.next/static
+COPY --from=build --chown=node:node /app/frontend/public ./frontend/public
 USER node
 EXPOSE 3000
 CMD ["node", "frontend/server.js"]
