@@ -4,6 +4,7 @@ import com.devmap.detector.TechnologyDetector;
 import com.devmap.exception.ScanException;
 import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
+import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectCommand;
 import com.devmap.model.ProjectComponent;
 import com.devmap.model.ProjectConnection;
@@ -11,6 +12,7 @@ import com.devmap.model.ProjectMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -27,6 +29,7 @@ public class ScanService {
     private static final int MAX_ENTRIES = 20_000, MAX_MANIFESTS = 200, MAX_FILE_BYTES = 1_048_576;
     private static final int MAX_TOTAL_BYTES = 10 * MAX_FILE_BYTES;
     private static final int MAX_DEPTH = 12;
+    private static final int MAX_DIRECTORIES = 1_000, MAX_DIRECTORY_PATH_LENGTH = 512;
     private static final long SCAN_BUDGET_NANOS = 10_000_000_000L;
     private final Path allowedRoot;
     private final List<TechnologyDetector> detectors;
@@ -50,6 +53,8 @@ public class ScanService {
         }
         var analysis = new Analysis();
         var warnings = analysis.warnings;
+        var directories = new ArrayList<String>();
+        boolean[] foldersPartial = {false};
         int[] entries = {0}, manifests = {0}, bytes = {0};
         long deadline = System.nanoTime() + SCAN_BUDGET_NANOS;
         try {
@@ -57,20 +62,33 @@ public class ScanService {
                 private FileVisitResult budget() {
                     if (++entries[0] > MAX_ENTRIES || manifests[0] >= MAX_MANIFESTS || bytes[0] >= MAX_TOTAL_BYTES || System.nanoTime() > deadline) {
                         warnings.add("Scan limit reached; this map is partial.");
+                        foldersPartial[0] = true;
                         return FileVisitResult.TERMINATE;
                     }
                     return FileVisitResult.CONTINUE;
                 }
+                private void rememberDirectory(Path directory) {
+                    String relative = root.relativize(directory).toString().replace(File.separatorChar, '/');
+                    if (directories.size() < MAX_DIRECTORIES && validDirectoryPath(relative)) directories.add(relative);
+                    else foldersPartial[0] = true;
+                }
                 @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                     if (budget() == FileVisitResult.TERMINATE) return FileVisitResult.TERMINATE;
-                    if (!dir.equals(root) && (IGNORED.contains(dir.getFileName().toString()) || dir.getFileName().toString().startsWith(".")
-                        || attrs.isSymbolicLink() || attrs.isOther() || !dir.toRealPath().startsWith(root))) return FileVisitResult.SKIP_SUBTREE;
+                    if (!dir.equals(root)) {
+                        if (ignoredDirectory(dir.getFileName().toString()) || attrs.isSymbolicLink()
+                            || attrs.isOther() || !dir.toRealPath().startsWith(root)) return FileVisitResult.SKIP_SUBTREE;
+                        rememberDirectory(dir);
+                    }
                     return FileVisitResult.CONTINUE;
                 }
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     if (budget() == FileVisitResult.TERMINATE) return FileVisitResult.TERMINATE;
                     if (attrs.isDirectory()) {
-                        warnings.add("Maximum directory depth reached; this map may be partial.");
+                        if (!ignoredDirectory(file.getFileName().toString())) {
+                            rememberDirectory(file);
+                            foldersPartial[0] = true;
+                            warnings.add("Maximum directory depth reached; this map may be partial.");
+                        }
                         return FileVisitResult.CONTINUE;
                     }
                     if (!attrs.isRegularFile() || attrs.isSymbolicLink()) return FileVisitResult.CONTINUE;
@@ -96,6 +114,7 @@ public class ScanService {
                         bytes[0] += buffer.position();
                         buffer.flip();
                         if (!analysis.inspect(relative, filename, detector.get(), StandardCharsets.UTF_8.decode(buffer).toString())) {
+                            foldersPartial[0] = true;
                             return FileVisitResult.TERMINATE;
                         }
                     } catch (IOException e) {
@@ -105,21 +124,26 @@ public class ScanService {
                 }
                 @Override public FileVisitResult visitFileFailed(Path file, IOException e) {
                     warnings.add("Some paths could not be read; this map may be partial.");
+                    foldersPartial[0] = true;
                     return budget();
                 }
             });
         } catch (IOException e) { throw new ScanException("The directory could not be scanned. Check local read permissions."); }
         String id = UUID.nameUUIDFromBytes(root.toString().getBytes(StandardCharsets.UTF_8)).toString();
         String name = root.getFileName() == null ? "Project" : root.getFileName().toString();
-        return analysis.result(id, name, manifests[0]);
+        return analysis.result(id, name, manifests[0], new FolderScheme(List.copyOf(directories), foldersPartial[0]));
     }
 
     public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests) {
+        return scanFolder(name, manifests, null);
+    }
+
+    public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests, FolderScheme folderScheme) {
         if (!validSegment(name) || name.length() > 255) {
             throw new ScanException("El nombre de la carpeta no es válido.");
         }
-        if (manifests == null || manifests.isEmpty() || manifests.size() > MAX_MANIFESTS) {
-            throw new ScanException("Selecciona una carpeta con entre 1 y 200 manifiestos compatibles.");
+        if (manifests == null || manifests.size() > MAX_MANIFESTS || (manifests.isEmpty() && folderScheme == null)) {
+            throw new ScanException("Selecciona una carpeta con hasta 200 manifiestos compatibles.");
         }
         int totalBytes = 0;
         for (var entry : manifests.entrySet()) {
@@ -130,7 +154,7 @@ public class ScanService {
             String[] segments = relative.split("/", -1);
             String filename = segments[segments.length - 1];
             if (segments.length > MAX_DEPTH
-                || Arrays.stream(segments).anyMatch(segment -> !validSegment(segment) || segment.startsWith(".") || IGNORED.contains(segment))
+                || Arrays.stream(segments).anyMatch(segment -> !validSegment(segment) || ignoredDirectory(segment))
                 || findDetector(filename).isEmpty()) {
                 throw new ScanException("La carpeta contiene una ruta de manifiesto no permitida.");
             }
@@ -145,6 +169,14 @@ public class ScanService {
             }
         }
 
+        if (folderScheme != null) {
+            var directories = folderScheme.directories();
+            if (directories == null || directories.size() > MAX_DIRECTORIES
+                || directories.stream().anyMatch(path -> !validDirectoryPath(path))) {
+                throw new ScanException("La estructura contiene rutas de carpetas no permitidas o supera el límite.");
+            }
+            folderScheme = new FolderScheme(directories.stream().distinct().toList(), folderScheme.partial());
+        }
         var analysis = new Analysis();
         long deadline = System.nanoTime() + SCAN_BUDGET_NANOS;
         int inspected = 0;
@@ -158,7 +190,7 @@ public class ScanService {
             inspected++;
             if (!analysis.inspect(relative, filename, findDetector(filename).orElseThrow(), entry.getValue())) break;
         }
-        return analysis.result(UUID.randomUUID().toString(), name, inspected);
+        return analysis.result(UUID.randomUUID().toString(), name, inspected, folderScheme);
     }
 
     private Optional<TechnologyDetector> findDetector(String filename) {
@@ -169,6 +201,17 @@ public class ScanService {
         return segment != null && !segment.isBlank() && !segment.equals(".") && !segment.equals("..")
             && segment.indexOf('/') < 0 && segment.indexOf('\\') < 0 && segment.indexOf(':') < 0
             && segment.chars().noneMatch(Character::isISOControl);
+    }
+
+    private static boolean ignoredDirectory(String segment) {
+        return segment.startsWith(".") || IGNORED.contains(segment);
+    }
+
+    private static boolean validDirectoryPath(String path) {
+        if (path == null || path.length() > MAX_DIRECTORY_PATH_LENGTH) return false;
+        var segments = path.split("/", -1);
+        return segments.length <= MAX_DEPTH &&
+            Arrays.stream(segments).allMatch(segment -> validSegment(segment) && !ignoredDirectory(segment));
     }
 
     private static class Analysis {
@@ -238,7 +281,7 @@ public class ScanService {
             return true;
         }
 
-        private ProjectMap result(String id, String name, int inspected) {
+        private ProjectMap result(String id, String name, int inspected, FolderScheme folderScheme) {
             if (nodes.isEmpty()) {
                 warnings.add(inspected == 0
                     ? "No supported files found in the selected directory."
@@ -250,7 +293,7 @@ public class ScanService {
                 .sorted(Comparator.comparing(DetectedTechnology::name))
                 .toList();
             return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges),
-                List.copyOf(warnings), technologies, Map.copyOf(composeNames), List.copyOf(commands));
+                List.copyOf(warnings), technologies, Map.copyOf(composeNames), List.copyOf(commands), folderScheme);
         }
     }
 }

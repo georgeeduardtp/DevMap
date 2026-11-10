@@ -11,7 +11,9 @@ const scan = (path, headers = {}) => request("/api/projects/scan", {
 });
 const health = await request("/api/health");
 assert.equal(health.status, 200);
-assert.equal((await health.json()).mode, "static");
+const engine = await health.json();
+assert.equal(engine.mode, "static");
+assert.equal(engine.storage, "json");
 const response = await scan(".");
 assert.equal(response.status, 200, await response.clone().text());
 const graph = await response.json();
@@ -22,6 +24,9 @@ assert.ok(graph.nodes.some((node) => node.technology === "Next.js" &&
 assert.ok(graph.nodes.every((node) => node.status === "unknown"));
 assert.ok(graph.edges.some((edge) => edge.confidence === "declared"));
 assert.equal(graph.composeNames["compose.yaml"], "devmap");
+assert.ok(graph.folderScheme.directories.includes("frontend/src"));
+assert.ok(graph.folderScheme.directories.includes("backend/src/main"));
+assert.ok(graph.folderScheme.directories.every((path) => !path.split("/").includes("node_modules")));
 assert.ok(graph.commands.some(({ kind, text, file }) => kind === "script" && text === "npm run dev" && file === "frontend/package.json"));
 assert.ok(graph.commands.some(({ kind, text, file }) => kind === "documented" &&
   text === "docker compose up --build -d --wait" && file === "README.md"));
@@ -40,10 +45,10 @@ assert.equal((await request(`/api/projects/${graph.id}`)).status, 200);
 assert.equal((await scan("..")).status, 400);
 assert.equal((await scan(".", { Origin: "https://evil.example" })).status, 403);
 
-const scanFolder = (manifests, headers = {}) => request("/api/projects/scan-folder", {
+const scanFolder = (manifests, headers = {}, folderScheme = { directories: ["web", "web/src", "empty"], partial: false }) => request("/api/projects/scan-folder", {
   method: "POST",
   headers: { "Content-Type": "application/json", ...headers },
-  body: JSON.stringify({ name: "Folder outside the mount", manifests }),
+  body: JSON.stringify({ name: "Folder outside the mount", manifests, folderScheme }),
 });
 const manifests = {
   "web/package.json": JSON.stringify({
@@ -59,6 +64,7 @@ assert.equal(folderResponse.status, 200, await folderResponse.clone().text());
 const folderGraph = await folderResponse.json();
 assert.equal(folderGraph.name, "Folder outside the mount");
 assert.equal(folderGraph.filesInspected, 3);
+assert.deepEqual(folderGraph.folderScheme, { directories: ["web", "web/src", "empty"], partial: false });
 assert.deepEqual(folderGraph.composeNames, {});
 assert.ok(folderGraph.commands.some(({ text, file }) => text === "npm run dev" && file === "web/package.json"));
 assert.ok(folderGraph.commands.some(({ text, file }) => text === "uv run app" && file === "README.md"));
@@ -78,6 +84,7 @@ assert.equal((await request(`/api/projects/${folderGraph.id}`)).status, 200);
 assert.equal((await scanFolder({ "../package.json": "{}" })).status, 400);
 assert.equal((await scanFolder({ ".env": "TOKEN=example" })).status, 400);
 assert.equal((await scanFolder({ "node_modules/package.json": "{}" })).status, 400);
+assert.equal((await scanFolder({}, {}, { directories: ["../private"], partial: false })).status, 400);
 assert.equal((await scanFolder({ "package.json": " ".repeat(1024 * 1024 + 1) })).status, 400);
 assert.equal((await scanFolder(manifests, { Origin: "https://evil.example" })).status, 403);
 
@@ -103,4 +110,4 @@ assert.equal(page.status, 200);
 const pageHtml = await page.text();
 assert.match(pageHtml, /Analiza una carpeta para ver su mapa de arquitectura\./);
 assert.match(pageHtml, /Elegir carpeta/);
-console.log("Integration OK: mounted scan, folder import, technology inventory, session deletion, local logos and request restrictions.");
+console.log("Integration OK: mounted scan, folder import, technology inventory, saved map deletion, local logos and request restrictions.");

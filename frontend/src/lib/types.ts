@@ -21,6 +21,11 @@ export type ProjectCommand = {
   componentId: string | null;
 };
 
+export type FolderScheme = {
+  directories: string[];
+  partial: boolean;
+};
+
 export type ArchitectureGraph = {
   id: string;
   name: string;
@@ -33,4 +38,5 @@ export type ArchitectureGraph = {
   technologies?: DetectedTechnology[];
   composeNames?: Record<string, string>;
   commands?: ProjectCommand[];
+  folderScheme?: FolderScheme | null;
 };

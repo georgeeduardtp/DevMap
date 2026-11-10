@@ -2,10 +2,11 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import FolderSchemePanel from "@/features/folders/FolderSchemePanel";
 import ProjectInspector from "@/features/graph/ProjectInspector";
 import { projectModules } from "@/features/graph/project-modules";
-import { deleteProject, listProjects, scanFolder, scanProject, type ScanProgress } from "@/lib/api";
+import { deleteProject, listProjects, scanFolder, type ScanProgress } from "@/lib/api";
 import type { ArchitectureGraph } from "@/lib/types";
 
 const ArchitectureCanvas = dynamic(() => import("@/features/graph/ArchitectureCanvas"), {
@@ -19,13 +20,13 @@ function describeScan(progress: ScanProgress): { message: string; detail?: strin
     case "preparing": {
       const files = progress.files;
       return {
-        message: "Preparando manifiestos…",
+        message: files ? "Preparando manifiestos…" : "Leyendo estructura de carpetas…",
         detail: files ? `${files.completed} de ${files.total} archivos leídos` : undefined,
       };
     }
     case "uploading": {
       const percentage = Math.min(100, Math.floor(100 * progress.loaded / progress.total));
-      return { message: "Enviando manifiestos al motor local…", percentage };
+      return { message: "Enviando el análisis al motor local…", percentage };
     }
     case "analyzing":
       return { message: "Analizando carpeta…" };
@@ -72,7 +73,7 @@ function ScreenLoader({ message, detail, percentage }: { message: string; detail
       </div>
       {percentage !== undefined ? (
         <div className="loader-progress">
-          <progress className="scan-progress-bar" aria-label="Envío de manifiestos" value={percentage} max={100} />
+          <progress className="scan-progress-bar" aria-label="Envío de datos del proyecto" value={percentage} max={100} />
           <span className="scan-progress-detail" aria-hidden="true">{percentage} %</span>
         </div>
       ) : detail && <span className="scan-progress-detail">{detail}</span>}
@@ -84,7 +85,7 @@ export default function Home() {
   const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
   const [projects, setProjects] = useState<ArchitectureGraph[]>([]);
   const [selected, setSelected] = useState("");
-  const [path, setPath] = useState("");
+  const [view, setView] = useState<"diagram" | "folders">("diagram");
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -109,7 +110,12 @@ export default function Home() {
         setProjects((current) => [...current, ...items.filter((item) => !current.some((project) => project.id === item.id))].slice(0, 20));
         setConnected(true);
       }
-    }).catch(() => { if (active) setConnected(false); }).finally(() => {
+    }).catch(() => {
+      if (active) {
+        setConnected(false);
+        setError("No se pudieron cargar los mapas guardados. Comprueba el motor local.");
+      }
+    }).finally(() => {
       if (active) setLoadingProjects(false);
     });
     return () => { active = false; };
@@ -157,14 +163,8 @@ export default function Home() {
       return scanFolder(directory, setScanProgress);
     });
   }
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const scanPath = path.trim();
-    if (scanPath && !processing) void runScan({ phase: "analyzing" }, () => scanProject(scanPath));
-  }
-
   async function removeProject(project: ArchitectureGraph) {
-    if (processing || loadingProjects || !window.confirm(`¿Borrar «${project.name}» de esta sesión?`)) return;
+    if (processing || loadingProjects || !window.confirm(`¿Borrar el mapa guardado de «${project.name}»?`)) return;
 
     setDeletingId(project.id);
     setError("");
@@ -176,7 +176,7 @@ export default function Home() {
         setSelected("");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo borrar el proyecto de la sesión.");
+      setError(cause instanceof Error ? cause.message : "No se pudo borrar el mapa guardado.");
     } finally {
       setDeletingId(null);
     }
@@ -191,8 +191,17 @@ export default function Home() {
     <div className="workspace">
       <aside className="sidebar">
         <p className="eyebrow">EXPLORADOR</p>
-        <div className="nav-active"><span>◇</span> Mapa de arquitectura</div>
-        <div className="sidebar-section"><p className="eyebrow">PROYECTOS DE ESTA SESIÓN</p><span>{projects.length.toString().padStart(2, "0")}</span></div>
+        <button type="button" className="choose-folder" disabled={processing} onClick={chooseFolder}>
+          <span aria-hidden="true">+</span> Elegir carpeta
+        </button>
+        <input ref={folderInput} type="file" hidden onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          if (files.length && !processing) {
+            void runScan({ phase: "preparing" }, () => scanFolder(files, setScanProgress));
+          }
+        }} />
+        <div className="sidebar-section"><p className="eyebrow">MAPAS GUARDADOS</p><span>{projects.length.toString().padStart(2, "0")}</span></div>
         {projects.length === 0 ? (
           <p className="muted sidebar-empty">Los repositorios que analices aparecerán aquí.</p>
         ) : (
@@ -203,7 +212,7 @@ export default function Home() {
                   disabled={processing} onClick={() => show(project)}>
                   <span aria-hidden="true">▱</span>{project.name}
                 </button>
-                <button type="button" className="delete-project" aria-label={`Borrar ${project.name} de la sesión`}
+                <button type="button" className="delete-project" aria-label={`Borrar el mapa de ${project.name}`}
                   disabled={processing || loadingProjects} onClick={() => void removeProject(project)}>
                   Borrar
                 </button>
@@ -216,24 +225,12 @@ export default function Home() {
       </aside>
       <main>
         <div className="page-heading"><div><p className="eyebrow">WORKSPACE / ARQUITECTURA</p><h1>Conecta los puntos<span>.</span></h1><p className="muted">Descubre las piezas de tu aplicación antes de arrancarla.</p></div><span className="static-pill">⌕ Análisis estático · V1</span></div>
-        <form className="scan-form" onSubmit={submit}>
-          <div className="folder-picker">
-            <button type="button" disabled={processing} onClick={chooseFolder}>Elegir carpeta</button>
-            <input ref={folderInput} type="file" hidden onChange={(event) => {
-              const files = Array.from(event.currentTarget.files ?? []);
-              event.currentTarget.value = "";
-              if (files.length && !processing) {
-                void runScan({ phase: "preparing" }, () => scanFolder(files, setScanProgress));
-              }
-            }} />
-            <span>DevMap analiza los manifiestos en tu ordenador.</span>
-          </div>
-          <label htmlFor="repository">O ANALIZA UNA RUTA MONTADA</label>
-          <div className="scan-input"><span aria-hidden>▱</span><input id="repository" value={path} onChange={(event) => setPath(event.target.value)} placeholder="Ruta de la carpeta" required disabled={processing} /><button type="submit" disabled={processing || !path.trim()}>Analizar carpeta<span aria-hidden> ↗</span></button></div>
-          <div className="scan-help">Escribe una ruta dentro de la carpeta de análisis. Usa «.» para analizar esa carpeta.</div>
-        </form>
+        <nav className="project-nav" aria-label="Vistas del proyecto">
+          <button type="button" aria-pressed={view === "diagram"} onClick={() => setView("diagram")}>Diagrama</button>
+          <button type="button" aria-pressed={view === "folders"} onClick={() => setView("folders")}>Folder scheme</button>
+        </nav>
         {error && <div className="error" role="alert">{error}</div>}
-        {graph ? <>
+        {view === "folders" ? <FolderSchemePanel key={graph?.id} graph={graph} /> : graph ? <>
           <section className="map-panel" aria-label="Mapa de arquitectura">
             <div className="map-toolbar"><div><span className="map-dot" /><strong>{graph.name}</strong></div><span>{graph.nodes.length} componentes <b>·</b> {graph.edges.length} relaciones</span></div>
             <div className="map-content">

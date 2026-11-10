@@ -1,6 +1,7 @@
 package com.devmap.service;
 
 import com.devmap.exception.ProjectNotFoundException;
+import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectMap;
 import com.devmap.repository.ProjectRepository;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,7 @@ public class ProjectService {
         return repository.save(scanner.scan(path));
     }
 
-    public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests) {
-        return repository.save(scanner.scanFolder(name, manifests));
+    public synchronized ProjectMap scanFolder(String name, Map<String, String> manifests, FolderScheme folderScheme) {
+        return repository.save(scanner.scanFolder(name, manifests, folderScheme));
     }
 }

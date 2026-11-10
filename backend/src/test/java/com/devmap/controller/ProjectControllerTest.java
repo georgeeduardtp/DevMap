@@ -6,6 +6,7 @@ import com.devmap.exception.ScanException;
 import com.devmap.mapper.ProjectMapper;
 import com.devmap.model.DetectedTechnology;
 import com.devmap.model.Evidence;
+import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectComponent;
 import com.devmap.model.ProjectCommand;
 import com.devmap.model.ProjectConnection;
@@ -39,7 +40,8 @@ class ProjectControllerTest {
             List.of(new ProjectConnection("api-redis", "api", "redis", "may use", "inferred")),
             List.of("Static evidence only"),
             List.of(new DetectedTechnology("Spring Boot", "framework", List.of(new Evidence("pom.xml", "Spring Boot dependency declared")))),
-            Map.of("compose.yaml", "shop"), List.of(new ProjectCommand("script", "dev", "npm run dev", "package.json", null)));
+            Map.of("compose.yaml", "shop"), List.of(new ProjectCommand("script", "dev", "npm run dev", "package.json", null)),
+            new FolderScheme(List.of("src"), false));
     }
 
     @Test void reportsLocalStaticHealth() throws Exception {
@@ -87,7 +89,8 @@ class ProjectControllerTest {
                  "warnings":["Static evidence only"],"technologies":[
                    {"name":"Spring Boot","category":"framework","evidence":[{"file":"pom.xml","description":"Spring Boot dependency declared"}]}],
                  "composeNames":{"compose.yaml":"shop"},"commands":[
-                   {"kind":"script","label":"dev","text":"npm run dev","file":"package.json","componentId":null}]}
+                   {"kind":"script","label":"dev","text":"npm run dev","file":"package.json","componentId":null}],
+                 "folderScheme":{"directories":["src"],"partial":false}}
                 """));
         verify(service).scan("shop");
     }

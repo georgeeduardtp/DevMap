@@ -24,8 +24,10 @@ public class ProjectMapper {
             technology.name(), technology.category(), toEvidenceResponse(technology.evidence()))).toList();
         var commands = project.commands().stream().map(command -> new CommandResponse(
             command.kind(), command.label(), command.text(), command.file(), command.componentId())).toList();
+        var scheme = project.folderScheme();
         return new ProjectResponse(project.id(), project.name(), project.scannedAt(), project.mode(),
-            project.filesInspected(), nodes, edges, project.warnings(), technologies, project.composeNames(), commands);
+            project.filesInspected(), nodes, edges, project.warnings(), technologies, project.composeNames(), commands,
+            scheme == null ? null : new ProjectResponse.FolderSchemeResponse(scheme.directories(), scheme.partial()));
     }
 
     private List<EvidenceResponse> toEvidenceResponse(List<Evidence> evidence) {

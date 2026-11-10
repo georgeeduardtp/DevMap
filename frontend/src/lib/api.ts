@@ -28,10 +28,6 @@ export const listProjects = () => fetch("/api/projects", { cache: "no-store" }).
 export const deleteProject = (id: string) => fetch(`/api/projects/${encodeURIComponent(id)}`, {
   method: "DELETE",
 }).then(assertOk);
-export const scanProject = (path: string) => fetch("/api/projects/scan", {
-  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }),
-}).then(read<ArchitectureGraph>);
-
 export async function scanFolder(source: FolderSource, onProgress: (progress: ScanProgress) => void): Promise<ArchitectureGraph> {
   onProgress({ phase: "preparing" });
   const folder = await readFolderManifests(source, (completed, total) => {

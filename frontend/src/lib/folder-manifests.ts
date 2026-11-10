@@ -8,6 +8,9 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_DEPTH = 12;
+const MAX_DIRECTORIES = 1_000;
+const MAX_DIRECTORY_PATH_LENGTH = 512;
+const MAX_VISITED_ENTRIES = 20_000;
 
 export type FolderSource = File[] | FileSystemDirectoryHandle;
 
@@ -21,12 +24,28 @@ function isIgnoredDirectory(name: string) {
   return name.startsWith(".") || IGNORED_DIRECTORIES.has(name);
 }
 
+function isValidDirectory(name: string) {
+  return !!name.trim() && !name.includes("\\") && !name.includes(":") && !Array.from(name).some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || (code >= 127 && code <= 159);
+  });
+}
+
 export async function readFolderManifests(source: FolderSource, onRead?: (completed: number, total: number) => void) {
   const name = Array.isArray(source) ? source[0]?.webkitRelativePath.split("/")[0] : source.name;
   if (!name) throw new Error("Selecciona una carpeta de tu ordenador.");
 
   const selected: { path: string; file: File }[] = [];
+  const directories = new Set<string>();
   let totalBytes = 0;
+  let visited = 0;
+  let partial = Array.isArray(source);
+
+  function addDirectory(path: string) {
+    if (directories.has(path)) return;
+    if (directories.size >= MAX_DIRECTORIES || path.length > MAX_DIRECTORY_PATH_LENGTH) partial = true;
+    else directories.add(path);
+  }
 
   function addManifest(path: string, file: File) {
     totalBytes += file.size;
@@ -38,10 +57,23 @@ export async function readFolderManifests(source: FolderSource, onRead?: (comple
 
   async function walkDirectory(directory: FileSystemDirectoryHandle, prefix: string, depth: number) {
     for await (const entry of directory.values()) {
+      if (++visited > MAX_VISITED_ENTRIES) {
+        partial = true;
+        return;
+      }
       const path = prefix + entry.name;
       if (entry.kind === "directory") {
-        if (depth + 1 < MAX_DEPTH && !isIgnoredDirectory(entry.name)) {
+        if (isIgnoredDirectory(entry.name)) continue;
+        if (!isValidDirectory(entry.name)) {
+          partial = true;
+          continue;
+        }
+        addDirectory(path);
+        if (depth + 1 < MAX_DEPTH) {
           await walkDirectory(entry as FileSystemDirectoryHandle, `${path}/`, depth + 1);
+          if (visited > MAX_VISITED_ENTRIES) return;
+        } else {
+          partial = true;
         }
       } else if (isSupportedFile(entry.name)) {
         const file = await (entry as FileSystemFileHandle).getFile();
@@ -52,31 +84,33 @@ export async function readFolderManifests(source: FolderSource, onRead?: (comple
 
   if (Array.isArray(source)) {
     for (const file of source) {
-      if (!isSupportedFile(file.name)) continue;
       const [folder, ...segments] = file.webkitRelativePath.split("/");
-      if (folder !== name || segments.length === 0 || segments.length > MAX_DEPTH ||
-        segments.slice(0, -1).some(isIgnoredDirectory)) continue;
-
-      addManifest(segments.join("/"), file);
+      if (folder !== name || !segments.length) continue;
+      const parents = segments.slice(0, -1);
+      let path = "";
+      for (const part of parents.slice(0, MAX_DEPTH)) {
+        if (isIgnoredDirectory(part) || !isValidDirectory(part)) break;
+        path = path ? `${path}/${part}` : part;
+        addDirectory(path);
+      }
+      if (segments.length <= MAX_DEPTH && path === parents.join("/") && isSupportedFile(file.name)) {
+        addManifest(segments.join("/"), file);
+      }
     }
   } else {
     await walkDirectory(source, "", 0);
   }
 
-  if (selected.length === 0) {
-    throw new Error("No se encontraron archivos compatibles. Busca un manifiesto, un README o un Makefile.");
-  }
-
   let completed = 0;
   let reading = true;
-  onRead?.(completed, selected.length);
+  if (selected.length) onRead?.(completed, selected.length);
   try {
     const entries = await Promise.all(selected.map(async ({ path, file }) => {
       const content = await file.text();
       if (reading) onRead?.(++completed, selected.length);
       return [path, content] as const;
     }));
-    return { name, manifests: Object.fromEntries(entries) };
+    return { name, manifests: Object.fromEntries(entries), folderScheme: { directories: [...directories], partial } };
   } finally {
     reading = false;
   }

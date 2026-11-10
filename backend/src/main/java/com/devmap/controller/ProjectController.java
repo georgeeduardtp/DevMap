@@ -4,6 +4,7 @@ import com.devmap.dto.request.ScanFolderRequest;
 import com.devmap.dto.request.ScanProjectRequest;
 import com.devmap.dto.response.ProjectResponse;
 import com.devmap.mapper.ProjectMapper;
+import com.devmap.model.FolderScheme;
 import com.devmap.service.ProjectService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -45,6 +46,8 @@ public class ProjectController {
 
     @PostMapping(value = "/scan-folder", consumes = "application/json")
     public ProjectResponse scanFolder(@RequestBody ScanFolderRequest request) {
-        return mapper.toResponse(service.scanFolder(request.name(), request.manifests()));
+        var scheme = request.folderScheme();
+        return mapper.toResponse(service.scanFolder(request.name(), request.manifests(),
+            scheme == null ? null : new FolderScheme(scheme.directories(), scheme.partial())));
     }
 }

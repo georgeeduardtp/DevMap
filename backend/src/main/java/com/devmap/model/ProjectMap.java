@@ -9,4 +9,4 @@ public record ProjectMap(String id, String name, Instant scannedAt, String mode,
                          int filesInspected, List<ProjectComponent> components,
                          List<ProjectConnection> connections, List<String> warnings,
                          List<DetectedTechnology> technologies, Map<String, String> composeNames,
-                         List<ProjectCommand> commands) {}
+                         List<ProjectCommand> commands, FolderScheme folderScheme) {}

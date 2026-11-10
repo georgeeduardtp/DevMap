@@ -1,8 +1,10 @@
 package com.devmap.repository;
 
 import com.devmap.exception.ProjectStorageException;
+import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
@@ -21,7 +23,21 @@ class ProjectRepositoryTest {
     }
 
     private ProjectMap project(String id) {
-        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of(), List.of(), Map.of(), List.of());
+        return new ProjectMap(id, id, Instant.now(), "static", 0, List.of(), List.of(), List.of(), List.of(), Map.of(), List.of(),
+            new FolderScheme(List.of("src", "src/main"), false));
+    }
+
+    @Test void reopensMapsSavedBeforeFolderSchemesExisted() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        ObjectNode saved = json.valueToTree(project("legacy"));
+        saved.remove("folderScheme");
+        json.writeValue(dataDirectory.resolve("projects.json").toFile(), List.of(saved));
+        try (var repository = repository()) {
+            assertThat(repository.findAll()).singleElement().satisfies(project -> {
+                assertThat(project.id()).isEqualTo("legacy");
+                assertThat(project.folderScheme()).isNull();
+            });
+        }
     }
 
     @Test void restoresOnlyTheTwentyMostRecentProjectsAndPromotesRescannedProjects() throws Exception {

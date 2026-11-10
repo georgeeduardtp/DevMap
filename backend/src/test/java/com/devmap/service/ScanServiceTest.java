@@ -4,6 +4,7 @@ import com.devmap.detector.ManifestDetector;
 import com.devmap.detector.ComposeDetector;
 import com.devmap.detector.CommandDetector;
 import com.devmap.exception.ScanException;
+import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectCommand;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,6 +23,27 @@ class ScanServiceTest {
     @TempDir Path root;
     private ScanService scanner() {
         return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector(), new CommandDetector()));
+    }
+
+    @Test void scansFoldersWithoutReadingOrdinaryFilesOrIgnoredDirectories() throws Exception {
+        Files.createDirectories(root.resolve("src/empty"));
+        Files.createDirectories(root.resolve("src/views"));
+        Files.createDirectories(root.resolve("src/node_modules/vendor"));
+        Files.createDirectories(root.resolve(".git/refs"));
+        Files.writeString(root.resolve("src/views/screen.ts"), "ordinary file");
+        var graph = scanner().scan(".");
+        assertThat(graph.folderScheme().directories()).containsExactlyInAnyOrder("src", "src/empty", "src/views");
+        assertThat(graph.folderScheme().partial()).isFalse();
+        assertThat(graph.filesInspected()).isZero();
+    }
+
+    @Test void acceptsFolderOnlyImportsAndRejectsNonRelativeAndIgnoredPaths() {
+        var graph = scanner().scanFolder("Folder", Map.of(), new FolderScheme(List.of("src", "src/empty"), false));
+        assertThat(graph.folderScheme()).isEqualTo(new FolderScheme(List.of("src", "src/empty"), false));
+        for (String invalid : List.of("../private", "/private", "src/node_modules", ".git/refs", "src//nested", "C:/private")) {
+            assertThatThrownBy(() -> scanner().scanFolder("Folder", Map.of(), new FolderScheme(List.of(invalid), false)))
+                .isInstanceOf(ScanException.class);
+        }
     }
 
     @Test void workspaceCoordinatorContributesTechnologiesWithoutAddingAnApplication() {
