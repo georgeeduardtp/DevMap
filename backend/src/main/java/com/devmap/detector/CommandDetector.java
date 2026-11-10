@@ -35,10 +35,22 @@ public class CommandDetector implements TechnologyDetector {
 
     @Override public Detection detect(String filename, String content) {
         String name = filename.toLowerCase(Locale.ROOT);
-        List<Command> commands = README_NAMES.contains(name) ? readmeCommands(content)
-            : MAKE_NAMES.contains(name) ? makeCommands(content, filename)
-            : containerCommands(content);
-        return new Detection(List.of(), List.of(), List.of(), null, commands);
+        if (README_NAMES.contains(name)) return new Detection(List.of(), List.of(), List.of(), null, readmeCommands(content));
+        if (MAKE_NAMES.contains(name)) return new Detection(List.of(), List.of(), List.of(), null, makeCommands(content, filename));
+
+        var instructions = containerInstructions(content);
+        var commands = new ArrayList<Command>();
+        for (var instruction : instructions) {
+            switch (instruction.keyword()) {
+                case "FROM" -> commands.clear();
+                case "CMD", "ENTRYPOINT" -> {
+                    commands.removeIf(command -> command.label().equals(instruction.keyword()));
+                    commands.add(new Command("container", instruction.keyword(), instruction.value()));
+                }
+                default -> { }
+            }
+        }
+        return new Detection(List.of(), List.of(), List.of(), null, List.copyOf(commands), new DockerRecipe(instructions));
     }
 
     private static List<Command> readmeCommands(String content) {
@@ -83,8 +95,8 @@ public class CommandDetector implements TechnologyDetector {
             .map(target -> new Command("script", target, invocation + target)).toList();
     }
 
-    private static List<Command> containerCommands(String content) {
-        var commands = new ArrayList<Command>();
+    private static List<DockerRecipe.Instruction> containerInstructions(String content) {
+        var instructions = new ArrayList<DockerRecipe.Instruction>();
         var continuation = new StringBuilder();
         var heredocs = new ArrayDeque<String>();
         char escape = '\\';
@@ -110,19 +122,12 @@ public class CommandDetector implements TechnologyDetector {
             if (!instruction.matches()) continue;
             String keyword = instruction.group(1).toUpperCase(Locale.ROOT);
             String value = instruction.group(2).strip();
-            switch (keyword) {
-                case "FROM" -> commands.clear();
-                case "CMD", "ENTRYPOINT" -> {
-                    commands.removeIf(command -> command.label().equals(keyword));
-                    commands.add(new Command("container", keyword, value));
-                }
-                case "RUN", "COPY", "ADD" -> {
-                    var heredoc = HEREDOC.matcher(value);
-                    while (heredoc.find()) heredocs.add(heredoc.group(1));
-                }
-                default -> { }
+            if (keyword.equals("RUN") || keyword.equals("COPY") || keyword.equals("ADD")) {
+                var heredoc = HEREDOC.matcher(value);
+                while (heredoc.find()) heredocs.add(heredoc.group(1));
             }
+            if (heredocs.isEmpty()) instructions.add(new DockerRecipe.Instruction(keyword, value));
         }
-        return List.copyOf(commands);
+        return instructions;
     }
 }

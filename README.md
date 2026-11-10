@@ -35,6 +35,8 @@ The folder picker works with folders outside the Docker mount. When the browser 
 - Switch between **Diagrama** and **Folder scheme** to see the saved directory tree with all branches visible and export it as an SVG. The fallback picker can only show folders that contain files. Older maps gain a folder scheme when the folder is imported again.
 - See components grouped by their manifest directory, with inferred frontend and backend roles and a separate Compose infrastructure group. Filter the technology inventory by module.
 - Select a Docker Compose file in the map to see its build and startup commands. Compose services show their referenced local Dockerfile in the evidence panel.
+- Select a connection to see the files that support it. Compose build links are declared when a local `COPY` or `ADD` in a reachable Dockerfile stage names the application manifest. Links based on a directory match are inferred. DevMap omits ambiguous matches and keeps `depends_on` as a separate relationship.
+- Drag a section by its heading to rearrange the diagram. Its cards and connections move with it, and the browser remembers the layout for that map.
 - Browse a project-wide technology inventory when no component is selected. Known manifest declarations identify languages, frameworks, libraries, tools, runtimes and infrastructure, with source-file evidence for each technology.
 - Distinguish **inferred** relationships from **declared** ones. Runtime state always remains **unknown**.
 - Reopen or remove up to 20 saved maps across restarts. Scanning the same mounted directory replaces its previous map. Each browser import is saved as a separate map.

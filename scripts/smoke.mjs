@@ -31,9 +31,13 @@ assert.ok(graph.commands.some(({ kind, text, file }) => kind === "script" && tex
 assert.ok(graph.commands.some(({ kind, text, file }) => kind === "documented" &&
   text === "docker compose up --build -d --wait" && file === "README.md"));
 assert.ok(graph.commands.some(({ label, file }) => label === "ENTRYPOINT" && file === "backend/Dockerfile"));
-for (const service of ["frontend", "backend"]) {
+for (const [service, manifest] of [["frontend", "frontend/package.json"], ["backend", "backend/pom.xml"]]) {
   const container = graph.nodes.find((node) => node.id === `compose.yaml::${service}`);
   assert.ok(container?.evidence.some((entry) => entry.file === `${service}/Dockerfile`));
+  const link = graph.edges.find((edge) => edge.source === container.id && edge.target === `${manifest}::app`);
+  assert.equal(link?.label, "packages");
+  assert.equal(link.confidence, "declared");
+  assert.deepEqual(link.evidence.map((entry) => entry.file), ["compose.yaml", `${service}/Dockerfile`, manifest]);
 }
 assert.ok(graph.technologies.some((technology) => technology.name === "React Flow" && technology.category === "library"));
 assert.ok(!graph.nodes.some((node) => node.id === "package.json::app"));

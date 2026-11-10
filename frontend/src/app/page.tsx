@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import FolderSchemePanel from "@/features/folders/FolderSchemePanel";
 import ProjectInspector from "@/features/graph/ProjectInspector";
+import { clearModulePositions } from "@/features/graph/diagram-layout";
 import { projectModules } from "@/features/graph/project-modules";
 import { deleteProject, listProjects, scanFolder, type ScanProgress } from "@/lib/api";
 import type { ArchitectureGraph } from "@/lib/types";
@@ -96,6 +97,7 @@ export default function Home() {
   const modules = useMemo(() => graph ? projectModules(graph) : [], [graph]);
   const compose = modules.find((module) => module.composeFile && module.id === selected);
   const node = graph?.nodes.find((n) => n.id === selected);
+  const connection = graph?.edges.find((edge) => edge.id === selected);
   const busy = scanProgress !== null;
   const processing = busy || deletingId !== null;
   const loadingStatus = scanProgress ? describeScan(scanProgress)
@@ -170,6 +172,7 @@ export default function Home() {
     setError("");
     try {
       await deleteProject(project.id);
+      clearModulePositions(project.id);
       setProjects((current) => current.filter((item) => item.id !== project.id));
       if (graph?.id === project.id) {
         setGraph(null);
@@ -235,12 +238,13 @@ export default function Home() {
             <div className="map-toolbar"><div><span className="map-dot" /><strong>{graph.name}</strong></div><span>{graph.nodes.length} componentes <b>·</b> {graph.edges.length} relaciones</span></div>
             <div className="map-content">
               <div className="canvas">
-                {graph.nodes.length ? <ArchitectureCanvas graph={graph} modules={modules} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
+                {graph.nodes.length ? <ArchitectureCanvas key={graph.id + graph.scannedAt} graph={graph} modules={modules} selectedId={selected} onSelect={setSelected} /> : <div className="canvas-loading">No se encontraron componentes compatibles. Revisa los avisos.</div>}
                 <div className="canvas-legend"><span className="legend-solid" />Declarada<span className="legend-dashed" />Inferida</div>
               </div>
-              <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} modules={modules} node={node} compose={compose} onSelect={setSelected} />
+              <ProjectInspector key={graph.id + graph.scannedAt} graph={graph} modules={modules} node={node} compose={compose}
+                connection={connection} onSelect={setSelected} />
             </div>
-            <div className="map-footer"><span>○ Sin comprobaciones de red</span><span>Arrastra para explorar · Scroll para acercar</span></div>
+            <div className="map-footer"><span>○ Sin comprobaciones de red</span><span>Arrastra los encabezados para mover las secciones</span></div>
           </section>
           <section className="findings"><div><p className="eyebrow">LECTURA DEL MAPA</p><strong>{graph.filesInspected} manifiestos inspeccionados</strong></div><ul>{graph.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></section>
         </> : (

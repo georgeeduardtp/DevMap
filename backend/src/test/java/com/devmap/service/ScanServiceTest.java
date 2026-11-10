@@ -6,6 +6,7 @@ import com.devmap.detector.CommandDetector;
 import com.devmap.exception.ScanException;
 import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectCommand;
+import com.devmap.model.ProjectConnection;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -110,6 +111,61 @@ class ScanServiceTest {
         assertThat(graph.composeNames()).containsExactlyInAnyOrderEntriesOf(Map.of(
             "compose.yaml", "devmap", "ops/docker-compose.yml", "devmap-tools"
         ));
+    }
+
+    @Test void linksComposeBuildsUsingTheirOwnContextAndReachableStages() {
+        var graph = scanner().scanFolder("Workspace", Map.of(
+            "deploy/compose.yaml", """
+                services:
+                  worker:
+                    build:
+                      context: ../workspace
+                      dockerfile: ../recipes/Worker.Dockerfile
+                      target: release
+                    depends_on: [cache]
+                  cache:
+                    image: redis:7
+                  website:
+                    build: ../workspace/landing
+                  uncertain:
+                    build:
+                      context: ../workspace
+                      dockerfile: ../recipes/Shared.Dockerfile
+                  unknown-target:
+                    build:
+                      context: ../workspace/landing
+                      target: missing
+                  remote:
+                    build: https://example.test/repository.git
+                """,
+            "workspace/task runner/package.json", "{}",
+            "workspace/landing/package.json", "{}",
+            "workspace/landing/Dockerfile", "FROM node:22\nCOPY . .",
+            "recipes/Worker.Dockerfile", """
+                FROM node:22 AS source
+                COPY --chown=node:node ["task runner/package.json", "/app/package.json"]
+                FROM source AS bundle
+                FROM scratch AS release
+                COPY --from=1 /app /app
+                FROM node:22 AS unrelated
+                COPY landing/package.json /app/
+                """,
+            "recipes/Shared.Dockerfile", """
+                FROM node:22
+                COPY . .
+                COPY ["task runner", "landing", "/app/"]
+                """
+        ));
+
+        assertThat(graph.connections()).extracting(ProjectConnection::id, ProjectConnection::label, ProjectConnection::confidence)
+            .containsExactlyInAnyOrder(
+                tuple("deploy/compose.yaml::worker->cache", "depends on", "declared"),
+                tuple("deploy/compose.yaml::worker->workspace/task runner/package.json::app", "packages", "declared"),
+                tuple("deploy/compose.yaml::website->workspace/landing/package.json::app", "packages", "inferred")
+            );
+        assertThat(graph.connections()).filteredOn(edge -> edge.label().equals("packages") && edge.confidence().equals("declared"))
+            .singleElement().satisfies(edge -> assertThat(edge.evidence()).extracting(evidence -> evidence.file())
+                .containsExactly("deploy/compose.yaml", "recipes/Worker.Dockerfile", "workspace/task runner/package.json"));
     }
 
     @Test void discoversCommandsFromIndependentSourcesAndKeepsTheirOrigins() {

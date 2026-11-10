@@ -350,7 +350,12 @@ body:has(.screen-loader[open]) {
   border-bottom: 1px solid #35443b;
   background: transparent;
   text-align: left;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
+.module-frame.dragging .module-frame-heading { cursor: grabbing; }
 .module-frame-heading strong {
   color: #bac8bd;
   font-size: 14px;
@@ -363,16 +368,16 @@ body:has(.screen-loader[open]) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.module-frame-active .module-frame-heading, .compose-frame-button:hover { border-bottom-color: #829a89; }
-.compose-frame-button { pointer-events: auto; }
-.compose-frame-title {
+.module-frame-active .module-frame-heading, .module-frame-heading:hover { border-bottom-color: #829a89; }
+.module-frame-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
-.compose-frame-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compose-frame-title > span { flex-shrink: 0; color: #93a59a; font-size: 10px; }
+.module-frame-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.module-frame-grip { flex-shrink: 0; color: #93a59a; }
+.compose-frame-button { flex-shrink: 0; border: 0; padding: 0; background: transparent; color: #93a59a; font-size: 10px; }
+.compose-frame-button:hover { color: #d8e2da; }
 .project-commands {
   margin: 16px 0;
   border: 1px solid var(--border);
@@ -499,7 +504,8 @@ body:has(.screen-loader[open]) {
   border: 0;
   background: #829187;
 }
-.architecture-node .react-flow__handle.target {
+.architecture-node .react-flow__handle.target,
+.architecture-node .architecture-vertical-handle {
   opacity: 0;
 }
 .architecture-edge-pulse { display: none; pointer-events: none; }

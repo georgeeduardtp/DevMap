@@ -5,8 +5,6 @@ import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +47,7 @@ public class ComposeDetector implements TechnologyDetector {
             String technology = detected == null ? "Container" : base;
             if (detected != null) technologies.add(new Technology(detected, "infrastructure", "Compose image: " + base));
             nodes.add(new TechnologyDetector.Component(key, key, "container", technology,
-                "Service declared in Compose; runtime unverified", buildFile(config.get("build"))));
+                "Service declared in Compose; runtime unverified", localBuild(config.get("build"))));
             for (String field : List.of("entrypoint", "command")) {
                 Object valueToRun = config.get(field);
                 String text = valueToRun instanceof String shell ? shell : null;
@@ -74,24 +72,24 @@ public class ComposeDetector implements TechnologyDetector {
         return new Detection(nodes, edges, technologies, composeName, commands);
     }
 
-    private static String buildFile(Object build) {
+    private static Build localBuild(Object build) {
         String context;
         String dockerfile = "Dockerfile";
+        String target = null;
         if (build instanceof String path) {
             context = relativePath(path);
         } else if (build instanceof Map<?, ?> config && !config.containsKey("dockerfile_inline")) {
             context = config.containsKey("context") ? relativePath(config.get("context")) : ".";
             dockerfile = config.containsKey("dockerfile") ? relativePath(config.get("dockerfile")) : "Dockerfile";
+            if (config.containsKey("target")) {
+                if (!(config.get("target") instanceof String name)) return null;
+                target = name;
+            }
         } else {
             return null;
         }
 
-        if (context == null || dockerfile == null) return null;
-        try {
-            return Path.of(context).resolve(dockerfile).normalize().toString().replace('\\', '/');
-        } catch (InvalidPathException ignored) {
-            return null;
-        }
+        return context == null || dockerfile == null ? null : new Build(context, dockerfile, target);
     }
 
     private static String relativePath(Object value) {

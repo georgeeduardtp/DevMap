@@ -26,6 +26,15 @@ export type FolderScheme = {
   partial: boolean;
 };
 
+export type ProjectConnection = {
+  id: string;
+  source: string;
+  target: string;
+  label: string;
+  confidence: string;
+  evidence?: ComponentNode["evidence"];
+};
+
 export type ArchitectureGraph = {
   id: string;
   name: string;
@@ -33,7 +42,7 @@ export type ArchitectureGraph = {
   mode: "static";
   filesInspected: number;
   nodes: ComponentNode[];
-  edges: { id: string; source: string; target: string; label: string; confidence: string }[];
+  edges: ProjectConnection[];
   warnings: string[];
   technologies?: DetectedTechnology[];
   composeNames?: Record<string, string>;

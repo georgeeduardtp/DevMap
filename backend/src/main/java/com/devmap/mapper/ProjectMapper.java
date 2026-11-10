@@ -19,11 +19,14 @@ public class ProjectMapper {
             component.id(), component.label(), component.kind(), component.technology(), component.status(),
             toEvidenceResponse(component.evidence()))).toList();
         var edges = project.connections().stream().map(connection -> new ConnectionResponse(
-            connection.id(), connection.source(), connection.target(), connection.label(), connection.confidence())).toList();
+            connection.id(), connection.source(), connection.target(), connection.label(), connection.confidence(),
+            toEvidenceResponse(connection.evidence()))).toList();
         var technologies = project.technologies().stream().map(technology -> new TechnologyResponse(
             technology.name(), technology.category(), toEvidenceResponse(technology.evidence()))).toList();
-        var commands = project.commands().stream().map(command -> new CommandResponse(
-            command.kind(), command.label(), command.text(), command.file(), command.componentId())).toList();
+        var commands = project.commands().stream()
+            .filter(command -> !"plugin".equals(command.kind()))
+            .map(command -> new CommandResponse(command.kind(), command.label(), command.text(),
+                command.file(), command.componentId())).toList();
         var scheme = project.folderScheme();
         return new ProjectResponse(project.id(), project.name(), project.scannedAt(), project.mode(),
             project.filesInspected(), nodes, edges, project.warnings(), technologies, project.composeNames(), commands,

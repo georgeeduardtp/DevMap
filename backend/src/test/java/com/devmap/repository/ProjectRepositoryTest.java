@@ -1,6 +1,7 @@
 package com.devmap.repository;
 
 import com.devmap.exception.ProjectStorageException;
+import com.devmap.mapper.ProjectMapper;
 import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,12 +32,30 @@ class ProjectRepositoryTest {
         var json = new ObjectMapper().findAndRegisterModules();
         ObjectNode saved = json.valueToTree(project("legacy"));
         saved.remove("folderScheme");
+        saved.withArray("connections").addObject().put("id", "web->api").put("source", "web").put("target", "api")
+            .put("label", "depends on").put("confidence", "declared");
         json.writeValue(dataDirectory.resolve("projects.json").toFile(), List.of(saved));
         try (var repository = repository()) {
             assertThat(repository.findAll()).singleElement().satisfies(project -> {
                 assertThat(project.id()).isEqualTo("legacy");
                 assertThat(project.folderScheme()).isNull();
+                assertThat(project.connections()).singleElement().satisfies(connection -> assertThat(connection.evidence()).isEmpty());
             });
+        }
+    }
+
+    @Test void reopensMapsSavedWithTheStartupGuide() throws Exception {
+        var json = new ObjectMapper().findAndRegisterModules();
+        ObjectNode saved = json.valueToTree(project("with-guide"));
+        saved.putObject("startupConfiguration").putArray("ports");
+        saved.withArray("commands").addObject().put("kind", "plugin").put("text", "mvn spring-boot:run");
+        saved.withArray("commands").addObject().put("kind", "script").put("text", "npm run dev");
+        json.writeValue(dataDirectory.resolve("projects.json").toFile(), List.of(saved));
+        try (var repository = repository()) {
+            var map = repository.findById("with-guide").orElseThrow();
+            assertThat(map.folderScheme().directories()).contains("src/main");
+            assertThat(new ProjectMapper().toResponse(map).commands()).extracting(command -> command.text())
+                .containsExactly("npm run dev");
         }
     }
 

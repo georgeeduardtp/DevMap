@@ -1,5 +1,6 @@
 package com.devmap.service;
 
+import com.devmap.detector.DockerRecipe;
 import com.devmap.detector.TechnologyDetector;
 import com.devmap.exception.ScanException;
 import com.devmap.model.DetectedTechnology;
@@ -224,6 +225,8 @@ public class ScanService {
         private final Map<TechnologyKey, Set<Evidence>> technologyEvidence = new LinkedHashMap<>();
         private final Map<String, String> composeNames = new LinkedHashMap<>();
         private final List<ProjectCommand> commands = new ArrayList<>();
+        private final List<BuildConnections.Build> builds = new ArrayList<>();
+        private final Map<String, DockerRecipe> dockerRecipes = new HashMap<>();
 
         private boolean inspect(String relative, String filename, TechnologyDetector detector, String content) {
             try {
@@ -235,19 +238,17 @@ public class ScanService {
                 String prefix = relative + "::";
                 int separator = relative.lastIndexOf('/');
                 String module = separator < 0 ? "" : relative.substring(0, separator);
+                if (detection.dockerRecipe() != null) dockerRecipes.put(relative, detection.dockerRecipe());
                 for (var component : detection.components()) {
                     String label = component.key().equals("app") && !module.isEmpty()
                         ? module + " · " + component.label() : component.label();
                     List<Evidence> evidence = new ArrayList<>();
                     evidence.add(new Evidence(relative, component.description()));
-                    if (component.buildFile() != null) {
-                        try {
-                            Path buildFile = Path.of(module).resolve(component.buildFile()).normalize();
-                            if (!buildFile.isAbsolute() && !buildFile.startsWith("..") && !buildFile.toString().isEmpty()) {
-                                evidence.add(new Evidence(buildFile.toString().replace('\\', '/'), "Dockerfile referenced by " + relative));
-                            }
-                        } catch (InvalidPathException ignored) {
-                            // The service remains valid even when its build path cannot be resolved locally.
+                    if (component.build() != null) {
+                        var build = BuildConnections.resolve(prefix + component.key(), relative, component.build());
+                        if (build != null) {
+                            builds.add(build);
+                            evidence.add(new Evidence(build.dockerfile(), "Dockerfile referenced by " + relative));
                         }
                     }
                     nodes.add(new ProjectComponent(prefix + component.key(), label, component.kind(), component.technology(), "unknown",
@@ -255,7 +256,9 @@ public class ScanService {
                 }
                 for (var connection : detection.connections()) {
                     edges.add(new ProjectConnection(prefix + connection.source() + "->" + connection.target(),
-                        prefix + connection.source(), prefix + connection.target(), connection.label(), connection.confidence()));
+                        prefix + connection.source(), prefix + connection.target(), connection.label(), connection.confidence(),
+                        List.of(new Evidence(relative, connection.label().equals("depends on")
+                            ? "Service dependency declared in depends_on" : "Dependency referenced in this manifest"))));
                 }
                 for (var technology : detection.technologies()) {
                     var key = new TechnologyKey(technology.name(), technology.category());
@@ -282,6 +285,16 @@ public class ScanService {
         }
 
         private ProjectMap result(String id, String name, int inspected, FolderScheme folderScheme) {
+            var applications = BuildConnections.applications(nodes);
+            for (var build : builds) {
+                var connection = BuildConnections.find(build, dockerRecipes, applications);
+                if (connection == null) continue;
+                if (edges.size() >= 2000) {
+                    warnings.add("Graph size limit reached; this map is partial.");
+                    break;
+                }
+                edges.add(connection);
+            }
             if (nodes.isEmpty()) {
                 warnings.add(inspected == 0
                     ? "No supported files found in the selected directory."

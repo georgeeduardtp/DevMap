@@ -1,6 +1,6 @@
 import { useState } from "react";
 import TechnologyIcon from "@/components/TechnologyIcon";
-import type { ArchitectureGraph, ComponentNode, DetectedTechnology, ProjectCommand } from "@/lib/types";
+import type { ArchitectureGraph, ComponentNode, DetectedTechnology, ProjectCommand, ProjectConnection } from "@/lib/types";
 import ProjectCommands, { commandDirectory } from "./ProjectCommands";
 import { moduleTitle, type ProjectModule } from "./project-modules";
 
@@ -78,16 +78,34 @@ function ComposeDetails({ module, commands }: { module: ProjectModule; commands?
   </div>;
 }
 
-export default function ProjectInspector({ graph, modules, node, compose, onSelect }: {
+const connectionTitles: Record<string, string> = { packages: "Empaqueta", "depends on": "Depende de", "may use": "Puede usar" };
+
+function ConnectionDetails({ connection, names }: { connection: ProjectConnection; names: Map<string, string> }) {
+  return <>
+    <h2>{connectionTitles[connection.label] ?? connection.label}</h2>
+    <dl>
+      <dt>Origen</dt><dd>{names.get(connection.source)}</dd>
+      <dt>Destino</dt><dd>{names.get(connection.target)}</dd>
+      <dt>Evidencia estática</dt><dd>{connection.confidence === "inferred" ? "Inferida" : "Declarada"}</dd>
+    </dl>
+    <h3>Archivos de referencia</h3>
+    {connection.evidence?.length ? <EvidenceList evidence={connection.evidence} />
+      : <p className="muted">Vuelve a analizar el proyecto para ver los archivos de referencia.</p>}
+  </>;
+}
+
+export default function ProjectInspector({ graph, modules, node, compose, connection, onSelect }: {
   graph: ArchitectureGraph;
   modules: ProjectModule[];
   node?: ComponentNode;
   compose?: ProjectModule;
+  connection?: ProjectConnection;
   onSelect: (id: string) => void;
 }) {
   const [moduleId, setModuleId] = useState("");
   const selectedModule = modules.find((module) => module.id === moduleId);
-  const title = compose ? "Docker Compose" : node ? "Detalle del componente" : "Tecnologías detectadas";
+  const title = connection ? "Detalle de la relación" : compose ? "Docker Compose" : node ? "Detalle del componente" : "Tecnologías detectadas";
+  const names = new Map(graph.nodes.map((item) => [item.id, item.label]));
   const componentFiles = node?.evidence.map(({ file }) => file) ?? [];
   const componentCommands = graph.commands?.filter((command) =>
     command.componentId ? command.componentId === node?.id : componentFiles.includes(command.file) ||
@@ -101,15 +119,21 @@ export default function ProjectInspector({ graph, modules, node, compose, onSele
 
   return <aside className="inspector" aria-label={title}>
     <label className="eyebrow" htmlFor="component">{title.toUpperCase()}</label>
-    <select id="component" className="component-select" value={compose?.id ?? node?.id ?? ""}
+    <select id="component" className="component-select" value={connection?.id ?? compose?.id ?? node?.id ?? ""}
       onChange={(event) => onSelect(event.target.value)} disabled={!graph.nodes.length}>
       <option value="">Tecnologías del proyecto</option>
       {modules.map((module) => <optgroup key={module.id} label={moduleTitle(module)}>
         {module.composeFile && <option value={module.id}>Comandos de Compose</option>}
         {module.nodes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </optgroup>)}
+      {graph.edges.length > 0 && <optgroup label="Relaciones">
+        {graph.edges.map((edge) => <option key={edge.id} value={edge.id}>
+          {names.get(edge.source)} → {names.get(edge.target)} · {connectionTitles[edge.label] ?? edge.label}
+        </option>)}
+      </optgroup>}
     </select>
-    {compose ? <ComposeDetails key={compose.id} module={compose} commands={commandsForCompose(graph.commands, compose, modules)} /> : node ? <>
+    {connection ? <ConnectionDetails connection={connection} names={names} />
+      : compose ? <ComposeDetails key={compose.id} module={compose} commands={commandsForCompose(graph.commands, compose, modules)} /> : node ? <>
       <span className="component-symbol">{node.kind === "application" ? "{ }" : "▤"}</span>
       <h2>{node.label}</h2>
       <span className="technology-badge">{node.technology}</span>
