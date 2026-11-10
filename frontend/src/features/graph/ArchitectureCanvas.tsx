@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
-import { Background, Controls, MiniMap, Position, ReactFlow, type Node, type Edge, type NodeProps } from "@xyflow/react";
+import { useMemo, type CSSProperties } from "react";
+import { Background, BaseEdge, Controls, getSmoothStepPath, Handle, MiniMap, Position, ReactFlow,
+  type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
 import TechnologyIcon from "@/components/TechnologyIcon";
 import type { ArchitectureGraph } from "@/lib/types";
 import type { ProjectModule } from "./project-modules";
@@ -12,6 +13,8 @@ type ModuleFrameNode = Node<{
   composeId?: string;
   onSelect: (id: string) => void;
 }, "moduleFrame">;
+type DiagramNode = Node<{ label: string; title: string; technology: string }, "architectureNode">;
+type DiagramEdge = Edge<{ pulseDelay?: number }, "architecture">;
 
 function ModuleFrame({ data }: NodeProps<ModuleFrameNode>) {
   if (data.composeId) {
@@ -30,9 +33,37 @@ function ModuleFrame({ data }: NodeProps<ModuleFrameNode>) {
   </div>;
 }
 
-const nodeTypes = { moduleFrame: ModuleFrame };
+function ArchitectureNode({ data, isConnectable }: NodeProps<DiagramNode>) {
+  return <>
+    <Handle id="left" type="target" position={Position.Left} isConnectable={isConnectable} />
+    <Handle id="left" type="source" position={Position.Left} isConnectable={isConnectable} />
+    <div className="architecture-node-label">
+      <TechnologyIcon technology={data.technology} colored />
+      <strong title={data.title}>{data.label}</strong>
+    </div>
+    <span className="architecture-node-status"><i aria-hidden="true" />Estado desconocido</span>
+    <Handle id="right" type="target" position={Position.Right} isConnectable={isConnectable} />
+    <Handle id="right" type="source" position={Position.Right} isConnectable={isConnectable} />
+  </>;
+}
 
-const layout = { padding: 20, nodeWidth: 235, nodeGap: 42, nodeRow: 155, header: 72, groupGap: 48 };
+const nodeTypes = { moduleFrame: ModuleFrame, architectureNode: ArchitectureNode };
+
+function ArchitectureEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data,
+  style, label, labelStyle, labelBgStyle, markerStart, markerEnd, interactionWidth }: EdgeProps<DiagramEdge>) {
+  const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  return <>
+    {data?.pulseDelay !== undefined && <path className="architecture-edge-pulse"
+      d={path} pathLength={1} fill="none" aria-hidden="true" style={{ animationDelay: `${data.pulseDelay}ms` }} />}
+    <BaseEdge id={id} path={path} style={style} label={label} labelX={labelX} labelY={labelY}
+      labelStyle={labelStyle} labelBgStyle={labelBgStyle} markerStart={markerStart} markerEnd={markerEnd}
+      interactionWidth={interactionWidth} />
+  </>;
+}
+
+const edgeTypes = { architecture: ArchitectureEdge };
+const layout = { padding: 10, nodeWidth: 200, nodeGap: 78, nodeRow: 108, header: 57, groupGap: 36 };
+const MAX_EDGE_PULSES = 16;
 
 export default function ArchitectureCanvas({ graph, modules, selectedId, onSelect }: {
   graph: ArchitectureGraph;
@@ -40,8 +71,9 @@ export default function ArchitectureCanvas({ graph, modules, selectedId, onSelec
   selectedId: string;
   onSelect: (id: string) => void;
 }) {
-  const nodes = useMemo<Node[]>(() => {
+  const { nodes, horizontalPositions } = useMemo(() => {
     const positioned: Node[] = [];
+    const horizontalPositions = new Map<string, number>();
     let x = 0;
     let y = 0;
     let rowHeight = 0;
@@ -60,10 +92,11 @@ export default function ArchitectureCanvas({ graph, modules, selectedId, onSelec
           composeId: module.composeFile ? module.id : undefined,
           onSelect,
         },
-        className: `module-frame module-frame-${module.role}${module.id === selectedId ? " module-frame-active" : ""}`,
+        className: module.id === selectedId ? "module-frame module-frame-active" : "module-frame",
         selectable: false,
         focusable: false,
-        style: { width, height, pointerEvents: module.composeFile ? "auto" : "none" },
+        style: { width, height, pointerEvents: "none",
+          "--diagram-entry-delay": `${Math.min(index * 48, 180)}ms` } as CSSProperties,
       };
 
       rowHeight = Math.max(rowHeight, height);
@@ -76,43 +109,65 @@ export default function ArchitectureCanvas({ graph, modules, selectedId, onSelec
       }
 
       const prefix = module.path ? `${module.path} · ` : "";
-      const children: Node[] = module.nodes.map((node, i) => ({
-        id: node.id,
-        parentId: frame.id,
-        position: {
-          x: layout.padding + (i % columns) * (layout.nodeWidth + layout.nodeGap),
-          y: layout.header + Math.floor(i / columns) * layout.nodeRow,
-        },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-        selected: node.id === selectedId,
-        className: `architecture-node ${node.kind}`,
-        data: { label: <div>
-          <div className="node-technology">
-            <TechnologyIcon technology={node.technology} />
-            <span className="node-tech">{node.technology}</span>
-          </div>
-          <strong title={node.label}>{node.label.startsWith(prefix) ? node.label.slice(prefix.length) : node.label}</strong>
-          <span className="node-state">○ Estado desconocido</span>
-        </div> },
-      }));
+      const children: DiagramNode[] = module.nodes.map((node, i) => {
+        const childX = layout.padding + (i % columns) * (layout.nodeWidth + layout.nodeGap);
+        horizontalPositions.set(node.id, frame.position.x + childX);
+        return {
+          id: node.id,
+          type: "architectureNode",
+          parentId: frame.id,
+          position: { x: childX, y: layout.header + Math.floor(i / columns) * layout.nodeRow },
+          selected: node.id === selectedId,
+          className: "architecture-node",
+          style: { width: layout.nodeWidth,
+            "--diagram-entry-delay": `${Math.min(50 + index * 48 + i * 30, 240)}ms` } as CSSProperties,
+          data: {
+            label: node.label.startsWith(prefix) ? node.label.slice(prefix.length) : node.label,
+            title: node.label,
+            technology: node.technology,
+          },
+        };
+      });
       positioned.push(frame, ...children);
     }
-    return positioned;
+    return { nodes: positioned, horizontalPositions };
   }, [modules, selectedId, onSelect]);
-  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => ({
-    ...edge, type: "smoothstep", animated: false,
-    label: edge.confidence === "inferred" ? "uso posible" : "dependencia declarada",
-    style: { stroke: edge.confidence === "inferred" ? "#617c86" : "#7ecfb0", strokeDasharray: edge.confidence === "inferred" ? "6 5" : undefined },
-    labelStyle: { fill: "#b7c8c4", fontSize: 11 }, labelBgStyle: { fill: "#142320" },
-  })), [graph]);
-  return <ReactFlow key={graph.id + graph.scannedAt} nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.22 }}
+  const edges = useMemo<DiagramEdge[]>(() => {
+    const selectedModule = modules.find((module) => module.id === selectedId);
+    const focusedNodes = new Set(selectedModule ? selectedModule.nodes.map((node) => node.id) : [selectedId]);
+    let pulseCount = 0;
+
+    return graph.edges.map((edge) => {
+      const inferred = edge.confidence === "inferred";
+      const focused = focusedNodes.has(edge.source) || focusedNodes.has(edge.target);
+      const pulseDelay = focused && pulseCount < MAX_EDGE_PULSES ? pulseCount++ * 85 : undefined;
+      const sourceX = horizontalPositions.get(edge.source) ?? 0;
+      const targetX = horizontalPositions.get(edge.target) ?? 0;
+      return {
+        ...edge,
+        type: "architecture",
+        sourceHandle: sourceX > targetX ? "left" : "right",
+        targetHandle: sourceX >= targetX ? "right" : "left",
+        data: { pulseDelay },
+        label: focused ? (inferred ? "Inferida" : "Declarada") : undefined,
+        style: {
+          stroke: focused ? "#a4b7a8" : "#65756b",
+          strokeWidth: focused ? 1.6 : undefined,
+          strokeDasharray: inferred ? "6 5" : undefined,
+        },
+        labelStyle: { fill: "#bac8bd", fontSize: 11 }, labelBgStyle: { fill: "#0e1916" },
+      };
+    });
+  }, [graph.edges, horizontalPositions, modules, selectedId]);
+  return <ReactFlow key={graph.id + graph.scannedAt} nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+    fitView fitViewOptions={{ padding: 0.22 }}
     minZoom={0.15} maxZoom={1.6} nodesDraggable={false} nodesConnectable={false}
     onNodeClick={(_, node) => onSelect(node.type === "moduleFrame" ? String(node.data.composeId ?? "") : node.id)}
     onPaneClick={() => onSelect("")}
     proOptions={{ hideAttribution: false }} colorMode="dark">
-    <Background color="#31433e" gap={24} size={1} />
+    <Background color="#293932" gap={24} size={1} />
     <Controls showInteractive={false} />
-    <MiniMap pannable zoomable nodeColor="#568875" maskColor="rgba(8,17,15,.7)" />
+    <MiniMap pannable zoomable nodeColor={(node) => node.type === "moduleFrame" ? "transparent" : "#718178"}
+      maskColor="rgba(8,17,15,.7)" />
   </ReactFlow>;
 }

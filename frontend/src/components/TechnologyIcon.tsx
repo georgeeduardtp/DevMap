@@ -28,11 +28,37 @@ const logos = new Map(Object.entries({
   container: "docker",
 }));
 
-export default function TechnologyIcon({ technology }: { technology: string }) {
+const logoColors = new Map(Object.entries({
+  springboot: "#87c752",
+  docker: "#62abef",
+  postgresql: "#7faed8",
+  react: "#61dafb",
+  nodedotjs: "#8abe69",
+  apachemaven: "#e6837c",
+  openjdk: "#e9aa76",
+  typescript: "#74ace8",
+  javascript: "#e7d460",
+  xyflow: "#e78cb0",
+  maptiler: "#86b3f1",
+  maplibre: "#68c8bd",
+  tailwindcss: "#63cbe0",
+  vite: "#ad96f1",
+  eslint: "#aa98ec",
+  redis: "#ee827a",
+  mongodb: "#73cd8e",
+  mysql: "#76b3d0",
+  rabbitmq: "#f39a67",
+}));
+
+export default function TechnologyIcon({ technology, colored = false }: { technology: string; colored?: boolean }) {
   const logo = logos.get(technology.trim().toLowerCase());
+  const color = logo && colored ? (logoColors.get(logo) ?? "#d5e0d8") : undefined;
 
   return <span className="technology-icon" aria-hidden="true">
-    {logo ? (
+    {color ? (
+      <span className="technology-icon-color"
+        style={{ backgroundColor: color, maskImage: `url(/technologies/${logo}.svg)` }} />
+    ) : logo ? (
       <Image src={`/technologies/${logo}.svg`} alt="" width={18} height={18} unoptimized />
     ) : (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
