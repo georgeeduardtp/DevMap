@@ -227,6 +227,7 @@ public class ScanService {
         private final List<ProjectCommand> commands = new ArrayList<>();
         private final List<BuildConnections.Build> builds = new ArrayList<>();
         private final Map<String, DockerRecipe> dockerRecipes = new HashMap<>();
+        private final Map<String, List<Integer>> runtimePorts = new TreeMap<>();
 
         private boolean inspect(String relative, String filename, TechnologyDetector detector, String content) {
             try {
@@ -239,6 +240,7 @@ public class ScanService {
                 int separator = relative.lastIndexOf('/');
                 String module = separator < 0 ? "" : relative.substring(0, separator);
                 if (detection.dockerRecipe() != null) dockerRecipes.put(relative, detection.dockerRecipe());
+                if (!detection.runtimePorts().isEmpty()) runtimePorts.put(relative, detection.runtimePorts());
                 for (var component : detection.components()) {
                     String label = component.key().equals("app") && !module.isEmpty()
                         ? module + " · " + component.label() : component.label();
@@ -305,8 +307,34 @@ public class ScanService {
                 .map(entry -> new DetectedTechnology(entry.getKey().name(), entry.getKey().category(), List.copyOf(entry.getValue())))
                 .sorted(Comparator.comparing(DetectedTechnology::name))
                 .toList();
-            return new ProjectMap(id, name, Instant.now(), "static", inspected, List.copyOf(nodes), List.copyOf(edges),
+            var components = nodes.stream().map(this::withRuntimeEndpoint).toList();
+            return new ProjectMap(id, name, Instant.now(), "static", inspected, components, List.copyOf(edges),
                 List.copyOf(warnings), technologies, Map.copyOf(composeNames), List.copyOf(commands), folderScheme);
+        }
+
+        private ProjectComponent withRuntimeEndpoint(ProjectComponent node) {
+            if (!node.kind().equals("application")) return node;
+            String manifest = node.evidence().getFirst().file();
+            String source = manifest;
+            Set<Integer> ports = new HashSet<>();
+            if (node.technology().equals("Next.js")) {
+                ports.addAll(runtimePorts.getOrDefault(manifest, List.of()));
+            } else if (node.technology().equals("Spring Boot")) {
+                String module = manifest.substring(0, manifest.lastIndexOf('/') + 1);
+                var locations = Set.of(module, module + "config/", module + "src/main/resources/", module + "src/main/resources/config/");
+                source = null;
+                for (var entry : runtimePorts.entrySet()) {
+                    String file = entry.getKey();
+                    int split = file.lastIndexOf('/') + 1;
+                    String filename = file.substring(split);
+                    if (!filename.startsWith("application") || !locations.contains(file.substring(0, split))) continue;
+                    ports.addAll(entry.getValue());
+                    if (source == null && !filename.startsWith("application-")) source = file;
+                }
+            }
+            if (source == null || ports.size() != 1 || ports.contains(0)) return node;
+            var endpoint = new ProjectComponent.RuntimeEndpoint("http://127.0.0.1:" + ports.iterator().next() + "/", source);
+            return new ProjectComponent(node.id(), node.label(), node.kind(), node.technology(), node.status(), node.evidence(), endpoint);
         }
     }
 }

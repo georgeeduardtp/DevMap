@@ -41,6 +41,7 @@ public class ManifestDetector implements TechnologyDetector {
         String label;
         boolean application;
         List<Technology> technologies;
+        List<Integer> runtimePorts = List.of();
         List<Command> commands = new ArrayList<>();
         if (filename.equals("package.json")) {
             JsonNode manifest = json.readTree(content);
@@ -52,6 +53,7 @@ public class ManifestDetector implements TechnologyDetector {
             technologies = TechnologyCatalog.npm(dependencies);
             boolean workspace = declaresWorkspaces(manifest);
             application = !workspace || hasApplicationSignals(manifest);
+            if (application && technology.equals("Next.js")) runtimePorts = ApplicationPortDetector.nextPorts(manifest.path("scripts"));
             String declaredManager = manifest.path("packageManager").asText("").split("@", 2)[0];
             String manager = PACKAGE_MANAGERS.contains(declaredManager) ? declaredManager : "npm";
             for (var script : manifest.path("scripts").properties()) {
@@ -115,7 +117,7 @@ public class ManifestDetector implements TechnologyDetector {
                 technologies.add(new Technology(signal.getKey(), "infrastructure", "Dependency declared: " + dependency));
             }
         });
-        return new Detection(nodes, edges, technologies, null, commands);
+        return new Detection(nodes, edges, technologies, null, commands, null, runtimePorts);
     }
 
     private static boolean declaresWorkspaces(JsonNode manifest) {

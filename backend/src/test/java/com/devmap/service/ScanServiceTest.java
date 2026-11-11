@@ -3,6 +3,7 @@ package com.devmap.service;
 import com.devmap.detector.ManifestDetector;
 import com.devmap.detector.ComposeDetector;
 import com.devmap.detector.CommandDetector;
+import com.devmap.detector.ApplicationPortDetector;
 import com.devmap.exception.ScanException;
 import com.devmap.model.FolderScheme;
 import com.devmap.model.ProjectCommand;
@@ -23,7 +24,33 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class ScanServiceTest {
     @TempDir Path root;
     private ScanService scanner() {
-        return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector(), new CommandDetector()));
+        return new ScanService(root.toString(), List.of(new ManifestDetector(new ObjectMapper()), new ComposeDetector(),
+            new CommandDetector(), new ApplicationPortDetector()));
+    }
+
+    @Test void associatesDeclaredPortsWithTheirApplicationAndSkipsConflicts() {
+        var graph = scanner().scanFolder("Workspace", Map.of(
+            "ui/package.json", """
+                {"dependencies":{"next":"*"},"scripts":{"dev":"node ../scripts/next.mjs dev --port 3001", "start":"next start -p 3001"}}
+                """,
+            "other/package.json", """
+                {"dependencies":{"next":"*"},"scripts":{"dev":"next dev --port 3002", "start":"PORT=3003 next start"}}
+                """,
+            "api/pom.xml", "<project><dependencies><dependency><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>",
+            "api/src/main/resources/application.yml", "server:\n  port: ${APP_PORT:8081}\nsecret: never-return-this",
+            "legacy/pom.xml", "<project><dependencies><dependency><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>",
+            "legacy/src/main/resources/application.properties", "server.port=8082",
+            "legacy/src/main/resources/application-dev.yml", "server.port: 8083",
+            "unrelated/application.yml", "server.port: 9999"
+        ));
+
+        assertThat(graph.components()).filteredOn(node -> node.runtimeEndpoint() != null)
+            .extracting(node -> node.id(), node -> node.runtimeEndpoint().url(), node -> node.runtimeEndpoint().file())
+            .containsExactlyInAnyOrder(
+                tuple("ui/package.json::app", "http://127.0.0.1:3001/", "ui/package.json"),
+                tuple("api/pom.xml::app", "http://127.0.0.1:8081/", "api/src/main/resources/application.yml")
+            );
+        assertThat(graph.toString()).doesNotContain("never-return-this");
     }
 
     @Test void scansFoldersWithoutReadingOrdinaryFilesOrIgnoredDirectories() throws Exception {

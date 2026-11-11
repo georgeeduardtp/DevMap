@@ -21,7 +21,11 @@ public interface TechnologyDetector {
         }
     }
     record Detection(List<Component> components, List<Connection> connections, List<Technology> technologies,
-                     String composeName, List<Command> commands, DockerRecipe dockerRecipe) {
+                     String composeName, List<Command> commands, DockerRecipe dockerRecipe, List<Integer> runtimePorts) {
+        public Detection(List<Component> components, List<Connection> connections, List<Technology> technologies,
+                         String composeName, List<Command> commands, DockerRecipe dockerRecipe) {
+            this(components, connections, technologies, composeName, commands, dockerRecipe, List.of());
+        }
         public Detection(List<Component> components, List<Connection> connections, List<Technology> technologies,
                          String composeName, List<Command> commands) {
             this(components, connections, technologies, composeName, commands, null);

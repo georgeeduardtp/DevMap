@@ -15,9 +15,12 @@ import java.util.List;
 @Component
 public class ProjectMapper {
     public ProjectResponse toResponse(ProjectMap project) {
-        var nodes = project.components().stream().map(component -> new ComponentResponse(
-            component.id(), component.label(), component.kind(), component.technology(), component.status(),
-            toEvidenceResponse(component.evidence()))).toList();
+        var nodes = project.components().stream().map(component -> {
+            var endpoint = component.runtimeEndpoint();
+            return new ComponentResponse(component.id(), component.label(), component.kind(), component.technology(),
+                component.status(), toEvidenceResponse(component.evidence()), endpoint == null ? null
+                    : new ComponentResponse.RuntimeEndpointResponse(endpoint.url(), endpoint.file()));
+        }).toList();
         var edges = project.connections().stream().map(connection -> new ConnectionResponse(
             connection.id(), connection.source(), connection.target(), connection.label(), connection.confidence(),
             toEvidenceResponse(connection.evidence()))).toList();
